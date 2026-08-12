@@ -1,0 +1,77 @@
+resources:
+  jobs:
+    ingestion_job:
+      name: "[${bundle.target}] stock_ingestion_landing_bronze"
+      description: >-
+        Phase 1, stage 1: pulls raw data from the (TBD) market-data vendor's
+        REST API, lands it as raw JSON, then parses it into the Bronze Delta
+        tables.
+      tags:
+        project: ygz-massive-stock
+        layer: landing-bronze
+      job_clusters:
+        - job_cluster_key: ingestion_cluster
+          new_cluster:
+            spark_version: "14.3.x-scala2.12"
+            node_type_id: "REPLACE_WITH_NODE_TYPE"
+            num_workers: 1
+            data_security_mode: SINGLE_USER
+      tasks:
+        - task_key: land_raw_json
+          job_cluster_key: ingestion_cluster
+          python_wheel_task:
+            package_name: ygz_massive_stock_pipeline
+            entry_point: land_raw_json
+          libraries:
+            - whl: ../dist/*.whl
+        - task_key: load_bronze
+          depends_on:
+            - task_key: land_raw_json
+          job_cluster_key: ingestion_cluster
+          python_wheel_task:
+            package_name: ygz_massive_stock_pipeline
+            entry_point: load_bronze
+          libraries:
+            - whl: ../dist/*.whl
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: "UTC"
+        pause_status: PAUSED  # unpause once the vendor client is wired up
+
+    dbt_job:
+      name: "[${bundle.target}] stock_dbt_silver_gold"
+      description: >-
+        Phase 1, stage 2: runs dbt Core to build the Silver and Gold layers
+        on top of the Bronze Delta tables.
+      tags:
+        project: ygz-massive-stock
+        layer: silver-gold
+      job_clusters:
+        - job_cluster_key: dbt_cluster
+          new_cluster:
+            spark_version: "14.3.x-scala2.12"
+            node_type_id: "REPLACE_WITH_NODE_TYPE"
+            num_workers: 1
+            data_security_mode: SINGLE_USER
+      tasks:
+        - task_key: dbt_build
+          job_cluster_key: dbt_cluster
+          depends_on: []
+          dbt_task:
+            project_directory: ../dbt
+            commands:
+              - "dbt deps"
+              - "dbt build"
+            catalog: "${var.catalog}"
+            schema: "${var.silver_schema}"
+            warehouse_id: "${var.warehouse_id}"
+          libraries:
+            - pypi:
+                package: "dbt-databricks>=1.7,<2.0"
+      schedule:
+        quartz_cron_expression: "0 30 6 * * ?"
+        timezone_id: "UTC"
+        pause_status: PAUSED
+
+    # TODO (phase 2): streaming_aggregation_job driven by Polygon/vendor
+    # WebSocket -> Databricks Structured Streaming -> real-time agg tables.

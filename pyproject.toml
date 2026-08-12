@@ -1,0 +1,36 @@
+[project]
+name = "ygz_massive_stock_pipeline"
+version = "0.1.0"
+description = "Stock market data pipeline (Databricks Asset Bundles + dbt Core). Vendor client is a placeholder until a data source is finalized."
+requires-python = ">=3.10,<3.12"
+dependencies = [
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "databricks-sdk>=0.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "dbt-core>=1.7,<2.0",
+    "dbt-databricks>=1.7,<2.0",
+    "pyspark~=3.5.0",
+    "pytest>=8.0",
+    "ruff>=0.4",
+    "build>=1.0",
+]
+
+# Entry points wired into resources/jobs.yml python_wheel_task definitions.
+[project.scripts]
+land_raw_json = "ingestion.landing_writer:main"
+load_bronze = "ingestion.bronze_loader:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

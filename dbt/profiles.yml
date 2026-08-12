@@ -1,0 +1,18 @@
+# Local-dev profile only. When dbt runs inside a Databricks Job via the DAB
+# dbt_task (resources/jobs.yml), Databricks generates the connection profile
+# automatically and this file is not used.
+#
+# For local `dbt` runs, set DATABRICKS_HOST / DATABRICKS_HTTP_PATH /
+# DATABRICKS_TOKEN in your `.env` (see .env.example at repo root).
+
+market_data_pipeline:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      catalog: "{{ env_var('DBT_CATALOG', 'dev_catalog') }}"
+      schema: "{{ env_var('DBT_SCHEMA', 'silver') }}"
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      threads: 4
