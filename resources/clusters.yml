@@ -1,0 +1,14 @@
+# Shared all-purpose cluster for interactive dev/debugging of the ingestion
+# scripts and dbt models. Jobs themselves (resources/jobs.yml) use their own
+# ephemeral job clusters so scheduled runs aren't affected by someone else's
+# interactive session.
+
+resources:
+  clusters:
+    shared_dev_cluster:
+      cluster_name: "${bundle.target}-ygz-massive-stock-shared"
+      spark_version: "14.3.x-scala2.12"
+      node_type_id: "REPLACE_WITH_NODE_TYPE"  # e.g. i3.xlarge on AWS, Standard_DS3_v2 on Azure
+      autotermination_minutes: 30
+      num_workers: 1
+      data_security_mode: SINGLE_USER

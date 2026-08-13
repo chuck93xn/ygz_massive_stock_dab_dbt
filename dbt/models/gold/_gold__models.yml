@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: dim_ticker
+    description: One row per ticker, for joining onto the fact tables.
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+          - unique
+
+  - name: fct_daily_returns
+    description: Daily close-to-close returns per ticker.
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: trade_date
+        tests:
+          - not_null
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - ticker
+              - trade_date
+
+  - name: fct_moving_averages
+    description: Rolling moving averages of close price per ticker (5/20/50-day windows).
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: trade_date
+        tests:
+          - not_null

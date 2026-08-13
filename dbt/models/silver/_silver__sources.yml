@@ -1,0 +1,15 @@
+version: 2
+
+sources:
+  - name: bronze
+    catalog: "{{ var('catalog', target.database) }}"
+    schema: "{{ env_var('BRONZE_SCHEMA', 'bronze') }}"
+    tables:
+      - name: daily_bars
+        description: Structured daily OHLCV bars parsed from Landing JSON, not yet cleaned.
+        config:
+          loaded_at_field: _ingested_at
+      - name: tickers
+        description: Structured ticker/reference data parsed from Landing JSON.
+        config:
+          loaded_at_field: _ingested_at

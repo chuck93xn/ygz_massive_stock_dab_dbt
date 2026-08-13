@@ -1,0 +1,19 @@
+# For .venv: ingestion unit tests, dbt Core, local pyspark logic.
+# Source of truth is pyproject.toml ([project.dependencies] +
+# [project.optional-dependencies].dev) - `pip install -e ".[dev]"` is the
+# real install command; this file just exists for tools/CI that expect a
+# plain requirements.txt. Keep the two in sync if you change one.
+#
+# Do NOT add databricks-connect here - it conflicts with pyspark below.
+# Use requirements-dbc.txt / venv_dbc for that instead.
+
+requests>=2.31
+python-dotenv>=1.0
+databricks-sdk>=0.20
+
+dbt-core>=1.7,<2.0
+dbt-databricks>=1.7,<2.0
+pyspark~=3.5.0
+pytest>=8.0
+ruff>=0.4
+build>=1.0

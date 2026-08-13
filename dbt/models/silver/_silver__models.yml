@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: stg_daily_bars
+    description: Deduplicated, UTC-normalized daily OHLCV bars, one row per ticker/trade_date.
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: trade_date
+        tests:
+          - not_null
+      - name: close_price
+        tests:
+          - not_null
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - ticker
+              - trade_date
+
+  - name: stg_tickers
+    description: Deduplicated ticker reference data.
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+          - unique

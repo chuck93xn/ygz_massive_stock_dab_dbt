@@ -1,0 +1,24 @@
+name: "market_data_pipeline"
+version: "1.0.0"
+config-version: 2
+
+profile: "market_data_pipeline"
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  market_data_pipeline:
+    silver:
+      +materialized: table
+      +schema: silver
+    gold:
+      +materialized: table
+      +schema: gold
