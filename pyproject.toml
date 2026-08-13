@@ -34,3 +34,8 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.pytest.ini_options]
+# Restrict discovery to tests/ so ad-hoc scripts elsewhere (e.g. sketch/)
+# named test_*.py/*_test.py never get swept into the unit test run.
+testpaths = ["tests"]

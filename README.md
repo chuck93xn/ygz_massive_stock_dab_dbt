@@ -73,7 +73,7 @@ pip install -e ".[dev]"
 # .venv_dbc - Databricks Connect (separate shell/activation)
 .\.venv_dbc\Scripts\Activate.ps1
 pip install -r requirements-dbc.txt
-python scripts\dbc_smoke_test.py   # sanity check the serverless session works
+python scripts\dbc_connection_check.py   # sanity check the serverless session works
 
 # configure secrets/paths (shared by both venvs)
 copy .env.example .env   # then fill it in

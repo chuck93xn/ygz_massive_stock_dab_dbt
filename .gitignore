@@ -22,3 +22,5 @@ dbt/logs/
 # editors
 .vscode/
 .idea/
+
+sketch/

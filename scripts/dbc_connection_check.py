@@ -1,6 +1,6 @@
 """Quick sanity check that venv_dbc can open a serverless Spark session.
 
-Usage (from venv_dbc): python scripts/dbc_smoke_test.py
+Usage (from .venv_dbc): python scripts/dbc_connection_check.py
 Reads DATABRICKS_CONFIG_PROFILE (and/or DATABRICKS_HOST + DATABRICKS_TOKEN)
 from `.env` at repo root; falls back to `databricks auth login` state if
 `.env` doesn't set a profile.
