@@ -6,9 +6,8 @@ from `.env` at repo root; falls back to `databricks auth login` state if
 `.env` doesn't set a profile.
 """
 
-from dotenv import load_dotenv
-
 from databricks.connect import DatabricksSession
+from dotenv import load_dotenv
 
 
 def main() -> None:

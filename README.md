@@ -39,10 +39,10 @@ dbt/
   profiles.yml                # local-dev only; DAB dbt_task auto-generates its own
   models/silver/               # stg_daily_bars, stg_tickers
   models/gold/                  # fct_daily_returns, fct_moving_averages, dim_ticker
-.github/workflows/
-  deploy-dev.yml               # auto-deploy on push to main
-  deploy-test.yml              # deploy to staging on PR / manual dispatch
-  deploy-prod.yml               # deploy to prod on release (needs environment approval)
+.github/workflows-disabled/
+  deploy-dev.yml               # auto-deploy on push to main (disabled, see below)
+  deploy-test.yml              # deploy to staging on PR / manual dispatch (disabled)
+  deploy-prod.yml               # deploy to prod on release (disabled)
 ```
 
 ## Local setup
@@ -108,6 +108,15 @@ Created under the `DBT` profile in `~/.databrickscfg` (Azure workspace
 - Catalog `ygz_massive_stock_dev`, with `landing` / `bronze` / `silver` / `gold` schemas
 - Volume `ygz_massive_stock_dev.landing.raw` (Landing layer append target)
 - SQL warehouse `2x Small serverless Warehouse` (id `04147fab6edc9014`) - what `dbt_task`/`dbt debug` connect through
+
+## CI/CD
+
+The deploy workflows live in `.github/workflows-disabled/`, not
+`.github/workflows/` — GitHub Actions only scans the latter, so they're
+inert. They were failing on every push (no `DATABRICKS_HOST_*`/`TOKEN_*`
+secrets configured, and `staging`/`prod` targets are still placeholders),
+so they're parked until the project is far enough along to actually
+deploy. See `.github/workflows-disabled/README.md` for how to re-enable.
 
 ## Status / TODO
 
