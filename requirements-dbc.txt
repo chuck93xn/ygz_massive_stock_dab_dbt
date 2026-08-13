@@ -1,0 +1,12 @@
+# Separate from pyproject.toml/.venv on purpose: databricks-connect and
+# pyspark cannot coexist in the same environment (databricks-connect ships
+# its own pyspark-compatible client). Use venv_dbc for anything that needs
+# a live Spark session against a Databricks workspace (interactive
+# exploration, notebook-style scripts); use .venv for everything else
+# (ingestion unit tests, dbt, local pyspark logic).
+#
+# Targets serverless compute, so it isn't pinned to a specific Databricks
+# Runtime's Python/package versions the way classic-cluster Connect is.
+databricks-connect>=15.1
+databricks-sdk>=0.20
+python-dotenv>=1.0

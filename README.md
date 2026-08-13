@@ -47,17 +47,28 @@ dbt/
 
 ## Local setup
 
-Requires Python 3.10/3.11 (matches Databricks Runtime + `dbt-databricks`; a `.venv` built
-with 3.11 is already set up at repo root) and the [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html).
+Two separate virtual environments — `databricks-connect` and `pyspark` can't coexist in the
+same environment, so they're kept apart:
+
+| Venv        | Purpose                                                        | Rebuild with                   |
+| ----------- | ---------------------------------------------------------------- | ------------------------------- |
+| `.venv`     | Ingestion unit tests, dbt Core, local pyspark logic (`pip install -e ".[dev]"`) | `scripts/setup_env.ps1`     |
+| `venv_dbc`  | Databricks Connect (serverless) for interactive Spark sessions against the workspace | `scripts/setup_env_dbc.ps1` |
+
+Both require the [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) for
+`databricks bundle ...` / `databricks auth login`.
 
 ```powershell
-# activate the venv
+# .venv - ingestion + dbt
 .\.venv\Scripts\Activate.ps1
-
-# install ingestion + dbt deps
 pip install -e ".[dev]"
 
-# configure secrets/paths
+# venv_dbc - Databricks Connect (separate shell/activation)
+.\venv_dbc\Scripts\Activate.ps1
+pip install -r requirements-dbc.txt
+python scripts\dbc_smoke_test.py   # sanity check the serverless session works
+
+# configure secrets/paths (shared by both venvs)
 copy .env.example .env   # then fill it in
 ```
 
