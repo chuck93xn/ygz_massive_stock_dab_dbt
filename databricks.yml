@@ -20,7 +20,7 @@ artifacts:
 variables:
   catalog:
     description: Unity Catalog catalog used by all four layers (landing/bronze/silver/gold)
-    default: dev_catalog
+    default: ygz_massive_stock_dev
   landing_schema:
     default: landing
   bronze_schema:
@@ -31,17 +31,17 @@ variables:
     default: gold
   landing_volume_path:
     description: Unity Catalog Volume path raw vendor JSON is appended to
-    default: /Volumes/dev_catalog/landing/raw
+    default: /Volumes/ygz_massive_stock_dev/landing/raw
   warehouse_id:
     description: SQL warehouse the dbt_task connects through
-    default: "REPLACE_WITH_SQL_WAREHOUSE_ID"
+    default: "04147fab6edc9014"  # "2x Small serverless Warehouse" in the DBT workspace
 
 targets:
   dev:
     mode: development
     default: true
     workspace:
-      host: https://REPLACE_WITH_DEV_WORKSPACE.cloud.databricks.com
+      host: https://adb-7405607192769716.16.azuredatabricks.net
 
   staging:
     mode: production

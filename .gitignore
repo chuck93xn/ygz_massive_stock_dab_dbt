@@ -1,8 +1,7 @@
 plan/
 
 # Python
-.venv/
-venv_dbc/
+.venv*/
 __pycache__/
 *.pyc
 .pytest_cache/

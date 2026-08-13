@@ -5,8 +5,12 @@
 # exploration, notebook-style scripts); use .venv for everything else
 # (ingestion unit tests, dbt, local pyspark logic).
 #
-# Targets serverless compute, so it isn't pinned to a specific Databricks
-# Runtime's Python/package versions the way classic-cluster Connect is.
-databricks-connect>=15.1
+# Targets serverless compute. Pinned (not just a floor) because newer
+# databricks-connect releases can outpace what this workspace's serverless
+# backend supports - e.g. 19.0.0 fails with "Serverless mode is not yet
+# supported in this version of Databricks Connect". 16.1.7 is confirmed
+# working here; bump deliberately and re-run scripts/dbc_smoke_test.py
+# before trusting a newer version.
+databricks-connect==16.1.7
 databricks-sdk>=0.20
 python-dotenv>=1.0

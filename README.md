@@ -47,13 +47,20 @@ dbt/
 
 ## Local setup
 
-Two separate virtual environments — `databricks-connect` and `pyspark` can't coexist in the
-same environment, so they're kept apart:
+Two separate virtual environments, on two different Python versions — `databricks-connect`
+and `pyspark` can't coexist in the same environment, and Databricks Connect needs a newer
+Python than the rest of the project:
 
-| Venv        | Purpose                                                        | Rebuild with                   |
-| ----------- | ---------------------------------------------------------------- | ------------------------------- |
-| `.venv`     | Ingestion unit tests, dbt Core, local pyspark logic (`pip install -e ".[dev]"`) | `scripts/setup_env.ps1`     |
-| `venv_dbc`  | Databricks Connect (serverless) for interactive Spark sessions against the workspace | `scripts/setup_env_dbc.ps1` |
+| Venv         | Python | Purpose                                                        | Rebuild with                   |
+| ------------ | ------ | ---------------------------------------------------------------- | ------------------------------- |
+| `.venv`      | 3.11   | Ingestion unit tests, dbt Core, local pyspark logic (`pip install -e ".[dev]"`) | `scripts/setup_env.ps1`     |
+| `.venv_dbc`  | 3.12   | Databricks Connect (serverless) for interactive Spark sessions against the workspace | `scripts/setup_env_dbc.ps1` |
+
+`.venv_dbc` needs 3.12 specifically: the VS Code Databricks extension refuses to manage
+Databricks Connect on 3.11, and `databricks-connect` is pinned to `16.1.7` in
+`requirements-dbc.txt` because the latest release (19.x, the default on 3.12+) doesn't
+support this workspace's serverless backend yet ("Serverless mode is not yet supported in
+this version of Databricks Connect").
 
 Both require the [Databricks CLI](https://docs.databricks.com/dev-tools/cli/index.html) for
 `databricks bundle ...` / `databricks auth login`.
@@ -63,8 +70,8 @@ Both require the [Databricks CLI](https://docs.databricks.com/dev-tools/cli/inde
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 
-# venv_dbc - Databricks Connect (separate shell/activation)
-.\venv_dbc\Scripts\Activate.ps1
+# .venv_dbc - Databricks Connect (separate shell/activation)
+.\.venv_dbc\Scripts\Activate.ps1
 pip install -r requirements-dbc.txt
 python scripts\dbc_smoke_test.py   # sanity check the serverless session works
 
@@ -77,7 +84,8 @@ copy .env.example .env   # then fill it in
 ```powershell
 cd dbt
 dbt deps
-dbt build --profiles-dir .
+dbt compile --profiles-dir .   # renders/parses all models, no warehouse writes
+dbt build --profiles-dir .     # actually runs against the warehouse
 ```
 
 ### Validate / deploy the bundle
@@ -89,12 +97,22 @@ databricks bundle run ingestion_job -t dev
 databricks bundle run dbt_job -t dev
 ```
 
-Fill in the `REPLACE_WITH_*` placeholders in `databricks.yml` and `resources/*.yml`
-(workspace hosts, node type, SQL warehouse id, prod service principal) before deploying.
+`dev` target already points at a real workspace/catalog/warehouse (see `databricks.yml`).
+`staging`/`prod` are still placeholders (`REPLACE_WITH_*`) until those environments exist.
+
+## Databricks resources (dev)
+
+Created under the `DBT` profile in `~/.databrickscfg` (Azure workspace
+`adb-7405607192769716.16.azuredatabricks.net`):
+
+- Catalog `ygz_massive_stock_dev`, with `landing` / `bronze` / `silver` / `gold` schemas
+- Volume `ygz_massive_stock_dev.landing.raw` (Landing layer append target)
+- SQL warehouse `2x Small serverless Warehouse` (id `04147fab6edc9014`) - what `dbt_task`/`dbt debug` connect through
 
 ## Status / TODO
 
 - [ ] Pick the actual market-data vendor and rewrite `vendor_client.py` against its real API
 - [ ] Rename neutral placeholders (`vendor_*`, generic table/column names) to match the chosen vendor
-- [ ] Fill in cluster node types + SQL warehouse id in `databricks.yml`
+- [ ] Fill in cluster node types in `resources/jobs.yml` / `resources/clusters.yml`
+- [ ] Create staging/prod catalogs + workspaces and fill in their `REPLACE_WITH_*` placeholders
 - [ ] Phase 2: Structured Streaming job + real-time aggregation tables

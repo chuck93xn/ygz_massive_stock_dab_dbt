@@ -30,7 +30,7 @@ class Settings:
         return cls(
             vendor_base_url=_require("VENDOR_API_BASE_URL"),
             vendor_api_key=_require("VENDOR_API_KEY"),
-            catalog=os.environ.get("DBT_CATALOG", "dev_catalog"),
+            catalog=os.environ.get("DBT_CATALOG", "ygz_massive_stock_dev"),
             landing_schema=os.environ.get("LANDING_SCHEMA", "landing"),
             bronze_schema=os.environ.get("BRONZE_SCHEMA", "bronze"),
             landing_volume_path=_require("LANDING_VOLUME_PATH"),
