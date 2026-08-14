@@ -1,4 +1,4 @@
-"""Landing layer: append raw massive.com JSON to a Unity Catalog Volume.
+"""Landing layer: append raw vendor JSON to a Unity Catalog Volume.
 
 Files are partitioned by ingestion date and never modified after being
 written, so the Landing layer stays a durable, replayable record of exactly
@@ -14,8 +14,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from ingestion.massive_client import MassiveClient
 from ingestion.settings import Settings
+from ingestion.vendor_client import VendorClient
 
 
 def write_landing_records(
@@ -50,41 +50,22 @@ def write_landing_records(
     return str(file_path)
 
 
-def land_tickers(client: MassiveClient, settings: Settings) -> str:
-    tickers = list(client.get_tickers())
-    return write_landing_records(
-        tickers,
-        landing_volume_path=settings.landing_volume_path,
-        source_name="tickers",
-        request_metadata={"endpoint": "/v3/reference/tickers"},
-    )
-
-
-def land_daily_bars(
-    client: MassiveClient, settings: Settings, *, ticker: str, start_date: str, end_date: str
-) -> str:
-    bars = list(client.get_daily_bars(ticker, start_date, end_date))
-    return write_landing_records(
-        bars,
-        landing_volume_path=settings.landing_volume_path,
-        source_name="daily_bars",
-        request_metadata={
-            "endpoint": f"/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}",
-            "ticker": ticker,
-        },
-    )
-
-
 def main() -> None:
     """Entry point for the `land_raw_json` DAB python_wheel_task.
 
-    Lands the full tickers reference list. Daily-bar landing
-    (`land_daily_bars`) isn't wired in here yet - which tickers and date
-    range to pull per run is still an open call.
+    TODO: once the vendor + universe of tickers is decided, replace this
+    with the real fetch loop (which tickers, which date range per run).
     """
     settings = Settings.from_env()
-    client = MassiveClient(api_key=settings.massive_api_key, base_url=settings.massive_base_url)
-    land_tickers(client, settings)
+    client = VendorClient(base_url=settings.vendor_base_url, api_key=settings.vendor_api_key)
+
+    tickers = list(client.get_tickers())
+    write_landing_records(
+        tickers,
+        landing_volume_path=settings.landing_volume_path,
+        source_name="tickers",
+        request_metadata={"endpoint": "/v1/tickers"},
+    )
 
 
 if __name__ == "__main__":
