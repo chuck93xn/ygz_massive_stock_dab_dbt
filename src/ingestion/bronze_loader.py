@@ -1,4 +1,4 @@
-"""Bronze layer: parse Landing JSON into structured, append-only Delta tables.
+"""Bronze layer: parse Landing JSON into a structured, append-only Delta table.
 
 Column mappings match massive.com's actual response shapes - verified
 against real landed data in sketch/bronze_dev/*.ipynb. Bronze keeps these
@@ -18,6 +18,7 @@ that haven't been loaded into `bronze_table` yet.
 from __future__ import annotations
 
 from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import functions as F
 
 from ingestion.settings import Settings
 
@@ -190,7 +191,7 @@ def main() -> None:
     spark = SparkSession.builder.getOrCreate()
     catalog_schema = f"{settings.catalog}.{settings.bronze_schema}"
 
-    load_daily_bars_to_bronze(
+    load_landing_to_bronze(
         spark,
         landing_path=f"{settings.landing_volume_path}/daily_bars",
         bronze_table=f"{catalog_schema}.daily_bars",
