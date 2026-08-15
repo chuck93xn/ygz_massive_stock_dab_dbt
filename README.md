@@ -44,6 +44,8 @@ src/ingestion/
     job.py                         # load_bronze() - the load_bronze DAB job entry point
 scripts/
   landing/                      # one-time/rerunnable backfill scripts, one per source
+  bronze/
+    reload_bronze.py               # drop + reload all 6 Bronze tables from current Landing data
   dbc_connection_check.py / massive_api_check.py / setup_env*.ps1   # not layer-specific
 dbt/
   dbt_project.yml
