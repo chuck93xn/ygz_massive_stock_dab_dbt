@@ -9,7 +9,7 @@
 # databricks-connect releases can outpace what this workspace's serverless
 # backend supports - e.g. 19.0.0 fails with "Serverless mode is not yet
 # supported in this version of Databricks Connect". 16.1.7 is confirmed
-# working here; bump deliberately and re-run scripts/dbc_smoke_test.py
+# working here; bump deliberately and re-run scripts/dbc_connection_check.py
 # before trusting a newer version.
 databricks-connect==16.1.7
 databricks-sdk>=0.20
