@@ -116,6 +116,73 @@ def land_daily_bars(
     )
 
 
+def land_ticker_overview(
+    client: MassiveClient,
+    settings: Settings,
+    *,
+    ticker: str,
+    writer: Writer = write_landing_records,
+) -> str:
+    """Land a single-ticker snapshot. get_ticker_overview isn't paginated
+    (one dict, not a list of records), so wrap it as a one-element list -
+    each landed file is one ticker's snapshot at land time."""
+    overview = client.get_ticker_overview(ticker)
+    return writer(
+        [overview],
+        landing_volume_path=settings.landing_volume_path,
+        source_name="ticker_overview",
+        request_metadata={"endpoint": f"/v3/reference/tickers/{ticker}", "ticker": ticker},
+    )
+
+
+def land_splits(
+    client: MassiveClient,
+    settings: Settings,
+    *,
+    ticker: str,
+    writer: Writer = write_landing_records,
+) -> str:
+    splits = list(client.get_splits(ticker))
+    return writer(
+        splits,
+        landing_volume_path=settings.landing_volume_path,
+        source_name="splits",
+        request_metadata={"endpoint": "/stocks/v1/splits", "ticker": ticker},
+    )
+
+
+def land_dividends(
+    client: MassiveClient,
+    settings: Settings,
+    *,
+    ticker: str,
+    writer: Writer = write_landing_records,
+) -> str:
+    dividends = list(client.get_dividends(ticker))
+    return writer(
+        dividends,
+        landing_volume_path=settings.landing_volume_path,
+        source_name="dividends",
+        request_metadata={"endpoint": "/stocks/v1/dividends", "ticker": ticker},
+    )
+
+
+def land_news(
+    client: MassiveClient,
+    settings: Settings,
+    *,
+    ticker: str,
+    writer: Writer = write_landing_records,
+) -> str:
+    news = list(client.get_news(ticker))
+    return writer(
+        news,
+        landing_volume_path=settings.landing_volume_path,
+        source_name="news",
+        request_metadata={"endpoint": "/v2/reference/news", "ticker": ticker},
+    )
+
+
 def main() -> None:
     """Entry point for the `land_raw_json` DAB python_wheel_task.
 
