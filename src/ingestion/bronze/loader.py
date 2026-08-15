@@ -19,8 +19,6 @@ from __future__ import annotations
 
 from pyspark.sql import DataFrame, SparkSession
 
-from ingestion.settings import Settings
-
 _AUDIT_COLUMNS = [
     "cast(_ingested_at as timestamp) as _ingested_at",
     # input_file_name() is not supported on Unity Catalog-governed compute
@@ -178,49 +176,3 @@ def load_news_sentiment_to_bronze(spark: SparkSession, *, landing_path: str, bro
         .saveAsTable(bronze_table)
     )
     return sentiment
-
-
-def main() -> None:
-    """Entry point for the `load_bronze` DAB python_wheel_task.
-
-    Full-load over the whole Landing path for each source - see module
-    docstring on why this isn't incremental yet.
-    """
-    settings = Settings.from_env()
-    spark = SparkSession.builder.getOrCreate()
-    catalog_schema = f"{settings.catalog}.{settings.bronze_schema}"
-
-    load_daily_bars_to_bronze(
-        spark,
-        landing_path=f"{settings.landing_volume_path}/daily_bars",
-        bronze_table=f"{catalog_schema}.daily_bars",
-    )
-    load_ticker_overview_to_bronze(
-        spark,
-        landing_path=f"{settings.landing_volume_path}/ticker_overview",
-        bronze_table=f"{catalog_schema}.ticker_overview",
-    )
-    load_splits_to_bronze(
-        spark,
-        landing_path=f"{settings.landing_volume_path}/splits",
-        bronze_table=f"{catalog_schema}.splits",
-    )
-    load_dividends_to_bronze(
-        spark,
-        landing_path=f"{settings.landing_volume_path}/dividends",
-        bronze_table=f"{catalog_schema}.dividends",
-    )
-    load_news_articles_to_bronze(
-        spark,
-        landing_path=f"{settings.landing_volume_path}/news",
-        bronze_table=f"{catalog_schema}.news_articles",
-    )
-    load_news_sentiment_to_bronze(
-        spark,
-        landing_path=f"{settings.landing_volume_path}/news",
-        bronze_table=f"{catalog_schema}.news_sentiment",
-    )
-
-
-if __name__ == "__main__":
-    main()
