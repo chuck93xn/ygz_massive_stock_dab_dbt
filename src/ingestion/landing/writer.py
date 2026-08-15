@@ -21,11 +21,11 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Callable, Iterable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from ingestion.massive_client import MassiveClient
+from ingestion.landing.client import MassiveClient
 from ingestion.settings import Settings
 
 Writer = Callable[..., str]
@@ -181,24 +181,3 @@ def land_news(
         source_name="news",
         request_metadata={"endpoint": "/v2/reference/news", "ticker": ticker},
     )
-
-
-def main() -> None:
-    """Entry point for the `land_raw_json` DAB python_wheel_task.
-
-    Daily incremental pull: a short recent window per watchlist ticker, so a
-    normal run just tops up the last few days (Silver dedups any overlap).
-    For the one-time full-history load, see scripts/backfill_daily_bars.py.
-    """
-    settings = Settings.from_env()
-    client = MassiveClient(api_key=settings.massive_api_key, base_url=settings.massive_base_url)
-
-    end = datetime.now(UTC).date()
-    start = end - timedelta(days=5)
-
-    for ticker in WATCHLIST_TICKERS:
-        land_daily_bars(client, settings, ticker=ticker, start_date=start.isoformat(), end_date=end.isoformat())
-
-
-if __name__ == "__main__":
-    main()

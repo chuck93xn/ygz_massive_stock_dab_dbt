@@ -1,11 +1,11 @@
-"""One-time (or rerunnable) load: land full split history for every
-watchlist ticker into the real Landing Volume.
+"""One-time (or rerunnable) load: land recent news for every watchlist
+ticker into the real Landing Volume.
 
-Usage (from .venv): python scripts/backfill_splits.py
+Usage (from .venv): python scripts/landing/backfill_news.py
 
-No date range - get_splits() always pulls full history (see
-plan/massive_client_design.md on why splits/dividends aren't "incremental").
-Safe to rerun; Silver will need to dedup on replay.
+Uses get_news()'s defaults (last 7 days, capped at 5 articles/ticker - the
+project's decision, see plan/requirement_breakdown.md). Meant to be rerun
+regularly (news goes stale), not a true one-time backfill like the others.
 """
 
 from functools import partial
@@ -13,12 +13,12 @@ from functools import partial
 from databricks.sdk import WorkspaceClient
 from dotenv import load_dotenv
 
-from ingestion.landing_writer import (
+from ingestion.landing.client import MassiveClient
+from ingestion.landing.writer import (
     WATCHLIST_TICKERS,
-    land_splits,
+    land_news,
     write_landing_records_via_files_api,
 )
-from ingestion.massive_client import MassiveClient
 from ingestion.settings import Settings
 
 
@@ -30,7 +30,7 @@ def main() -> None:
     writer = partial(write_landing_records_via_files_api, workspace_client=ws)
 
     for ticker in WATCHLIST_TICKERS:
-        path = land_splits(client, settings, ticker=ticker, writer=writer)
+        path = land_news(client, settings, ticker=ticker, writer=writer)
         print(f"{ticker}: landed to {path}")
 
 

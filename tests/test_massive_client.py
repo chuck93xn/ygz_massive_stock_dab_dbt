@@ -1,4 +1,4 @@
-from ingestion.massive_client import MassiveClient
+from ingestion.landing.client import MassiveClient
 
 
 class _FakeResponse:

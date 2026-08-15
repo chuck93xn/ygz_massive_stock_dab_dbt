@@ -4,25 +4,29 @@ Stock market data pipeline built with **Databricks Asset Bundles (DAB)** and **d
 
 ## Architecture
 
-**Phase 1** (current): vendor REST API → Landing (raw JSON) → Bronze (structured Delta) →
-Silver/Gold (dbt Core).
+**Phase 1** (current): massive.com REST API → Landing (raw JSON) → Bronze (structured Delta)
+→ Silver/Gold (dbt Core).
 
-**Phase 2** (planned): vendor WebSocket → Databricks Structured Streaming → real-time
+**Phase 2** (planned): massive.com WebSocket → Databricks Structured Streaming → real-time
 aggregation tables.
 
 | Layer       | Storage                          | Owner              | What happens here                                              |
 | ----------- | --------------------------------- | ------------------ | ---------------------------------------------------------------- |
-| **Landing** | Raw JSON in a UC Volume, append-only | Python (`src/ingestion`) | Raw vendor responses, partitioned by date, with request metadata |
-| **Bronze**  | Delta table, fixed schema, unclean | Python/PySpark (DAB job) | JSON parsed into columns + `_ingested_at`/`_source_file` audit fields |
+| **Landing** | Raw JSON in a UC Volume, append-only | Python (`src/ingestion/landing`) | Raw massive.com responses, partitioned by date, with request metadata |
+| **Bronze**  | Delta table, fixed schema, unclean | Python/PySpark (`src/ingestion/bronze`, DAB job) | JSON parsed into columns + `_ingested_at`/`_source_file` audit fields |
 | **Silver**  | Delta table, cleaned               | dbt Core            | UTC normalization, dedup, naming conventions, dbt tests          |
 | **Gold**    | Delta table, analysis-ready        | dbt Core            | Daily returns, moving averages, volatility, ticker dimension     |
 
-> The market-data vendor itself hasn't been finalized yet (see `plan/introduction.md`,
-> local-only). `src/ingestion/vendor_client.py` and the Bronze/Silver schemas below are
-> placeholders with generic/neutral naming — expect a rename + real schema once the vendor
-> is picked.
+Watchlist is a fixed 10 tickers (see `plan/requirement_breakdown.md`, local-only) - all 5
+massive.com endpoints (daily bars, ticker overview, splits, dividends, news) are landed and
+Bronze-loaded for each. Silver/Gold still use the original scaffold-era placeholder models.
 
 ## Repo layout
+
+`src/ingestion/` splits into one subpackage per medallion layer. Each layer has pure
+functions in its own module, and - only where a real DAB job needs to call into it - a thin
+`job.py` with just the entry point (imports the real logic, no logic of its own). This is
+the only place `main()`-shaped code lives; everything else is importable functions.
 
 ```
 databricks.yml              # DAB bundle root config (targets: dev/staging/prod)
@@ -30,10 +34,17 @@ resources/
   jobs.yml                  # ingestion_job (Landing+Bronze) and dbt_job (Silver+Gold)
   clusters.yml               # shared interactive dev cluster
 src/ingestion/
-  vendor_client.py           # REST client stub: auth, retry/backoff, pagination
-  landing_writer.py           # writes raw JSON to the Landing Volume
-  bronze_loader.py            # Landing -> Bronze (structured Delta)
-  settings.py                 # env-var driven runtime config
+  settings.py                 # env-var driven runtime config, shared across layers
+  landing/
+    client.py                   # MassiveClient: auth, retry/backoff, pagination
+    writer.py                    # land_*() + write_landing_records*() - pure functions
+    job.py                         # land_raw_json() - the land_raw_json DAB job entry point
+  bronze/
+    loader.py                    # load_*_to_bronze() - pure functions
+    job.py                         # load_bronze() - the load_bronze DAB job entry point
+scripts/
+  landing/                      # one-time/rerunnable backfill scripts, one per source
+  dbc_connection_check.py / massive_api_check.py / setup_env*.ps1   # not layer-specific
 dbt/
   dbt_project.yml
   profiles.yml                # local-dev only; DAB dbt_task auto-generates its own
@@ -120,8 +131,14 @@ deploy. See `.github/workflows-disabled/README.md` for how to re-enable.
 
 ## Status / TODO
 
-- [ ] Pick the actual market-data vendor and rewrite `vendor_client.py` against its real API
-- [ ] Rename neutral placeholders (`vendor_*`, generic table/column names) to match the chosen vendor
+- [x] Pick the market-data vendor (massive.com) and implement `ingestion/landing/client.py`
+      against its real API
+- [x] Land + Bronze-load all 5 sources (daily_bars, ticker_overview, splits, dividends, news)
+      for the full watchlist
+- [ ] Silver/Gold dbt models still use scaffold-era placeholder schemas - need to align with
+      the real Bronze table shapes (see `plan/data_model_design.md`)
+- [ ] Bronze loads are full-reloads, not incremental (see `ingestion/bronze/loader.py`
+      module docstring) - only `land_raw_json` (Landing) is incremental so far
 - [ ] Fill in cluster node types in `resources/jobs.yml` / `resources/clusters.yml`
 - [ ] Create staging/prod catalogs + workspaces and fill in their `REPLACE_WITH_*` placeholders
 - [ ] Phase 2: Structured Streaming job + real-time aggregation tables

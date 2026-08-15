@@ -12,7 +12,7 @@ import os
 
 from dotenv import load_dotenv
 
-from ingestion.massive_client import MassiveClient
+from ingestion.landing.client import MassiveClient
 
 
 def main() -> None:
