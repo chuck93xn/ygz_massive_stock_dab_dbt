@@ -109,8 +109,7 @@ copy .env.example .env   # then fill it in
 cd dbt
 dbt deps
 dbt compile --profiles-dir .   # renders/parses all models, no warehouse writes
-dbt snapshot --profiles-dir .  # updates dim_ticker_snapshot (SCD2) - dbt build does NOT run this
-dbt build --profiles-dir .     # actually runs against the warehouse
+dbt build --profiles-dir .     # actually runs against the warehouse (includes the dim_ticker_snapshot SCD2 snapshot)
 ```
 
 ### Validate / deploy the bundle
@@ -130,7 +129,8 @@ databricks bundle run dbt_job -t dev
 Created under the `DBT` profile in `~/.databrickscfg` (Azure workspace
 `adb-7405607192769716.16.azuredatabricks.net`):
 
-- Catalog `ygz_massive_stock_dev`, with `landing` / `bronze` / `silver` / `gold` / `snapshots` schemas
+- Catalog `ygz_massive_stock_dev`, with `landing` / `bronze` / `silver` / `gold` schemas
+  (`dim_ticker_snapshot` also lives in `gold` - dbt snapshots don't get their own schema here)
 - Volume `ygz_massive_stock_dev.landing.raw` (Landing layer append target)
 - SQL warehouse `2x Small serverless Warehouse` (id `04147fab6edc9014`) - what `dbt_task`/`dbt debug` connect through
 
