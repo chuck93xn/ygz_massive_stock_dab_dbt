@@ -2,12 +2,62 @@ version: 2
 
 models:
   - name: dim_ticker
-    description: One row per ticker, for joining onto the fact tables.
+    description: >
+      SCD2 dimension (dbt snapshot on stg_ticker_overview, strategy=check) -
+      one row per ticker per historical version of its slow-changing fields
+      (name/primary_exchange/sic_code/type/active/currency_name). A ticker
+      can have more than one row over time, so joining to this table by
+      ticker alone can fan out fact rows. Use `where is_current` for
+      current-state lookups, or join on
+      `fact.trade_date between valid_from and coalesce(valid_to, '9999-12-31')`
+      for point-in-time lookups.
     columns:
       - name: ticker
         tests:
           - not_null
+      - name: valid_from
+        tests:
+          - not_null
+
+  - name: dim_date
+    description: Standard date dimension spanning the observed daily_bars range plus a buffer.
+    columns:
+      - name: date_day
+        tests:
+          - not_null
           - unique
+
+  - name: dim_publisher
+    description: One row per news publisher, deduplicated from news articles.
+    columns:
+      - name: publisher_name
+        tests:
+          - not_null
+          - unique
+
+  - name: dim_industry
+    description: One row per SIC industry code, split off dim_ticker (snowflake schema).
+    columns:
+      - name: sic_code
+        tests:
+          - not_null
+          - unique
+
+  - name: fct_daily_bars
+    description: Daily OHLCV bars per ticker, one row per ticker/trade_date.
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: trade_date
+        tests:
+          - not_null
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - ticker
+              - trade_date
 
   - name: fct_daily_returns
     description: Daily close-to-close returns per ticker.
@@ -34,3 +84,51 @@ models:
       - name: trade_date
         tests:
           - not_null
+
+  - name: fct_ticker_daily_metrics
+    description: Fast-changing ticker metrics (market cap, shares outstanding), one row per ticker/snapshot_date.
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: snapshot_date
+        tests:
+          - not_null
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - ticker
+              - snapshot_date
+
+  - name: fct_splits
+    description: Stock split events, one row per split_id.
+    columns:
+      - name: split_id
+        tests:
+          - not_null
+          - unique
+
+  - name: fct_dividends
+    description: Dividend events, one row per dividend_id.
+    columns:
+      - name: dividend_id
+        tests:
+          - not_null
+          - unique
+
+  - name: fct_news_sentiment
+    description: Per-(article, ticker) sentiment insights joined with article metadata.
+    columns:
+      - name: article_id
+        tests:
+          - not_null
+      - name: ticker
+        tests:
+          - not_null
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - article_id
+              - ticker

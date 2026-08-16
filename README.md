@@ -19,8 +19,8 @@ aggregation tables.
 
 Watchlist is a fixed 10 tickers (see `plan/requirements/requirement_breakdown.md`, local-only) - all 5
 massive.com endpoints (daily bars, ticker overview, splits, dividends, news) are landed and
-Bronze-loaded for each. Silver models are aligned with the real Bronze schema; Gold still uses
-the original scaffold-era placeholder models.
+Bronze-loaded for each. Silver and Gold models are both aligned with the real Bronze schema;
+`dim_ticker` is a proper SCD2 dimension via a dbt snapshot.
 
 ## Repo layout
 
@@ -55,8 +55,14 @@ dbt/
     generate_schema_name.sql     # custom +schema maps directly to silver/gold, no doubling
   models/silver/               # stg_daily_bars, stg_ticker_overview, stg_splits, stg_dividends,
                                 #   stg_news_articles, stg_news_sentiment - aligned with Bronze
-  models/gold/                  # fct_daily_returns, fct_moving_averages, dim_ticker - still
-                                #   scaffold-era placeholders, not yet realigned
+  models/gold/                  # dim_ticker, dim_date, dim_publisher, dim_industry,
+                                #   fct_daily_bars, fct_ticker_daily_metrics, fct_splits,
+                                #   fct_dividends, fct_news_sentiment, fct_daily_returns,
+                                #   fct_moving_averages - aligned with Bronze
+  snapshots/
+    dim_ticker_snapshot.sql      # SCD2 source for dim_ticker (strategy=check)
+  tests/
+    assert_dim_ticker_single_current_version.sql   # singular test: SCD2 invariant
 .github/workflows-disabled/
   deploy-dev.yml               # auto-deploy on push to main (disabled, see below)
   deploy-test.yml              # deploy to staging on PR / manual dispatch (disabled)
@@ -103,6 +109,7 @@ copy .env.example .env   # then fill it in
 cd dbt
 dbt deps
 dbt compile --profiles-dir .   # renders/parses all models, no warehouse writes
+dbt snapshot --profiles-dir .  # updates dim_ticker_snapshot (SCD2) - dbt build does NOT run this
 dbt build --profiles-dir .     # actually runs against the warehouse
 ```
 
@@ -123,7 +130,7 @@ databricks bundle run dbt_job -t dev
 Created under the `DBT` profile in `~/.databrickscfg` (Azure workspace
 `adb-7405607192769716.16.azuredatabricks.net`):
 
-- Catalog `ygz_massive_stock_dev`, with `landing` / `bronze` / `silver` / `gold` schemas
+- Catalog `ygz_massive_stock_dev`, with `landing` / `bronze` / `silver` / `gold` / `snapshots` schemas
 - Volume `ygz_massive_stock_dev.landing.raw` (Landing layer append target)
 - SQL warehouse `2x Small serverless Warehouse` (id `04147fab6edc9014`) - what `dbt_task`/`dbt debug` connect through
 
@@ -143,8 +150,8 @@ deploy. See `.github/workflows-disabled/README.md` for how to re-enable.
 - [x] Land + Bronze-load all 5 sources (daily_bars, ticker_overview, splits, dividends, news)
       for the full watchlist
 - [x] Align Silver dbt models with the real Bronze table shapes
-- [ ] Gold dbt models still use scaffold-era placeholder schemas - need to align with
-      the real Bronze table shapes (see `plan/design/data_model_design.md`)
+- [x] Align Gold dbt models with the real Bronze table shapes, `dim_ticker` as SCD2
+      via dbt snapshot (see `plan/design/data_model_design.md`)
 - [ ] Bronze loads are full-reloads, not incremental (see `ingestion/bronze/loader.py`
       module docstring) - only `land_raw_json` (Landing) is incremental so far
 - [ ] Fill in cluster node types in `resources/jobs.yml` / `resources/clusters.yml`
