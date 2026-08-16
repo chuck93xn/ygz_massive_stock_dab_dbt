@@ -40,8 +40,7 @@ the only place `main()`-shaped code lives; everything else is importable functio
 ```
 databricks.yml              # DAB bundle root config (targets: dev/staging/prod)
 resources/
-  jobs.yml                  # ingestion_job (Landing+Bronze) and dbt_job (Silver+Gold)
-  clusters.yml               # shared interactive dev cluster
+  jobs.yml                  # ingestion_job (Landing+Bronze) and dbt_job (Silver+Gold) - both serverless
 src/ingestion/
   settings.py                 # env-var driven runtime config, shared across layers
   landing/
@@ -147,6 +146,11 @@ Created under the `DBT` profile in `~/.databrickscfg` (Azure workspace
   (`dim_ticker_snapshot` also lives in `gold` - dbt snapshots don't get their own schema here)
 - Volume `ygz_massive_stock_dev.landing.raw` (Landing layer append target)
 - SQL warehouse `2x Small serverless Warehouse` (id `04147fab6edc9014`) - what `dbt_task`/`dbt debug` connect through
+- Secret scope `ygz-massive-stock`, holding `MASSIVE_API_KEY` - both jobs in `resources/jobs.yml`
+  run on serverless compute, which has no cluster to attach `spark_env_vars`-style secret
+  references to, so `ingestion/settings.py` reads it via `dbutils.secrets.get()` instead (falls
+  back to the local `.env`/env var when `dbutils` isn't a real Databricks runtime, i.e. everywhere
+  outside an actual job)
 
 ## CI/CD
 
@@ -175,8 +179,12 @@ for how to re-enable.
       via natural-key anti-join (see `ingestion/bronze/loader.py` module docstring)
 - [x] Add a PR-triggered `pytest` CI gate (`.github/workflows/test.yml`) - separate from
       the deploy workflows below, needs no Databricks connection or secrets
-- [ ] Wire `MASSIVE_API_KEY` into `resources/jobs.yml` via a Databricks secret scope -
-      the real job has no way to read it yet (still assumes a local `.env`)
-- [ ] Fill in cluster node types in `resources/jobs.yml` / `resources/clusters.yml`
+- [x] Wire `MASSIVE_API_KEY` into the real job via a Databricks secret scope
+      (`ygz-massive-stock`), and move both jobs to serverless compute instead of filling
+      in cluster node types - `resources/clusters.yml` is gone, no `job_clusters` left in
+      `resources/jobs.yml` (see `plan/records/06_job_serverless_process.md`). Config verified
+      end-to-end (`bundle validate`/`deploy`/`run` all confirmed working, including a real
+      `dbutils.secrets.get()` read); a full run that actually lands+loads data is still pending
+      because today's testing hit massive.com's real rate limit - rerun once that clears
 - [ ] Create staging/prod catalogs + workspaces and fill in their `REPLACE_WITH_*` placeholders
 - [ ] Phase 2: Structured Streaming job + real-time aggregation tables
