@@ -19,7 +19,8 @@ aggregation tables.
 
 Watchlist is a fixed 10 tickers (see `plan/requirement_breakdown.md`, local-only) - all 5
 massive.com endpoints (daily bars, ticker overview, splits, dividends, news) are landed and
-Bronze-loaded for each. Silver/Gold still use the original scaffold-era placeholder models.
+Bronze-loaded for each. Silver models are aligned with the real Bronze schema; Gold still uses
+the original scaffold-era placeholder models.
 
 ## Repo layout
 
@@ -50,8 +51,12 @@ scripts/
 dbt/
   dbt_project.yml
   profiles.yml                # local-dev only; DAB dbt_task auto-generates its own
-  models/silver/               # stg_daily_bars, stg_tickers
-  models/gold/                  # fct_daily_returns, fct_moving_averages, dim_ticker
+  macros/
+    generate_schema_name.sql     # custom +schema maps directly to silver/gold, no doubling
+  models/silver/               # stg_daily_bars, stg_ticker_overview, stg_splits, stg_dividends,
+                                #   stg_news_articles, stg_news_sentiment - aligned with Bronze
+  models/gold/                  # fct_daily_returns, fct_moving_averages, dim_ticker - still
+                                #   scaffold-era placeholders, not yet realigned
 .github/workflows-disabled/
   deploy-dev.yml               # auto-deploy on push to main (disabled, see below)
   deploy-test.yml              # deploy to staging on PR / manual dispatch (disabled)
@@ -137,7 +142,8 @@ deploy. See `.github/workflows-disabled/README.md` for how to re-enable.
       against its real API
 - [x] Land + Bronze-load all 5 sources (daily_bars, ticker_overview, splits, dividends, news)
       for the full watchlist
-- [ ] Silver/Gold dbt models still use scaffold-era placeholder schemas - need to align with
+- [x] Align Silver dbt models with the real Bronze table shapes
+- [ ] Gold dbt models still use scaffold-era placeholder schemas - need to align with
       the real Bronze table shapes (see `plan/data_model_design.md`)
 - [ ] Bronze loads are full-reloads, not incremental (see `ingestion/bronze/loader.py`
       module docstring) - only `land_raw_json` (Landing) is incremental so far
