@@ -4,7 +4,7 @@ ticker into the real Landing Volume.
 Usage (from .venv): python scripts/landing/backfill_news.py
 
 Uses get_news()'s defaults (last 7 days, capped at 5 articles/ticker - the
-project's decision, see plan/requirement_breakdown.md). Meant to be rerun
+project's decision, see plan/requirements/requirement_breakdown.md). Meant to be rerun
 regularly (news goes stale), not a true one-time backfill like the others.
 """
 

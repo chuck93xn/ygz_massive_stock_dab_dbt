@@ -30,7 +30,7 @@ from ingestion.settings import Settings
 
 Writer = Callable[..., str]
 
-# Fixed watchlist (see plan/requirement_breakdown.md) - not small-cap
+# Fixed watchlist (see plan/requirements/requirement_breakdown.md) - not small-cap
 # specific, just the 10 tickers the project tracks.
 WATCHLIST_TICKERS = ["AAPL", "MSFT", "AMZN", "JPM", "JNJ", "TSLA", "XOM", "KO", "DIS", "BA"]
 

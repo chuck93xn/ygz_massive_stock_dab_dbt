@@ -75,7 +75,7 @@ class MassiveClient:
         """Yield recent news articles mentioning `ticker`.
 
         `days_back`/`limit` default to the project's decision: last 7 days,
-        max 5 articles per ticker (see plan/requirement_breakdown.md).
+        max 5 articles per ticker (see plan/requirements/requirement_breakdown.md).
 
         `limit` is a hard cap on the total yielded, not just a per-page
         size - unlike get_splits/get_dividends (which intentionally return

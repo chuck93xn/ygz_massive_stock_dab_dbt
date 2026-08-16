@@ -8,7 +8,7 @@ Silver's job in dbt.
 These are full-loads: each `load_*_to_bronze` reads everything under
 `landing_path`, not just newly-landed files. Landing's own incrementality
 (how far back an API pull goes) is a separate concern from Bronze's - see
-plan/requirement_breakdown.md. Making this incremental (e.g. only reading
+plan/requirements/requirement_breakdown.md. Making this incremental (e.g. only reading
 the latest date= partition, or Auto Loader) is a deliberately separate,
 not-yet-built step; running these repeatedly with `mode("append")` today
 would duplicate rows, so only call them when landing_path points at files
@@ -43,7 +43,7 @@ _DAILY_BARS_SELECT = [
 ]
 
 # Unlike daily_bars, the ticker_overview record carries its own `ticker`
-# field. Only the columns plan/data_model_design.md's dim_ticker /
+# field. Only the columns plan/design/data_model_design.md's dim_ticker /
 # fct_ticker_daily_metrics design actually needs are selected here - the
 # response has more (address, branding, phone_number, description, ...)
 # that nothing downstream uses yet.

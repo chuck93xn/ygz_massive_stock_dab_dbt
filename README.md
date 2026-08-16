@@ -17,7 +17,7 @@ aggregation tables.
 | **Silver**  | Delta table, cleaned               | dbt Core            | UTC normalization, dedup, naming conventions, dbt tests          |
 | **Gold**    | Delta table, analysis-ready        | dbt Core            | Daily returns, moving averages, volatility, ticker dimension     |
 
-Watchlist is a fixed 10 tickers (see `plan/requirement_breakdown.md`, local-only) - all 5
+Watchlist is a fixed 10 tickers (see `plan/requirements/requirement_breakdown.md`, local-only) - all 5
 massive.com endpoints (daily bars, ticker overview, splits, dividends, news) are landed and
 Bronze-loaded for each. Silver models are aligned with the real Bronze schema; Gold still uses
 the original scaffold-era placeholder models.
@@ -144,7 +144,7 @@ deploy. See `.github/workflows-disabled/README.md` for how to re-enable.
       for the full watchlist
 - [x] Align Silver dbt models with the real Bronze table shapes
 - [ ] Gold dbt models still use scaffold-era placeholder schemas - need to align with
-      the real Bronze table shapes (see `plan/data_model_design.md`)
+      the real Bronze table shapes (see `plan/design/data_model_design.md`)
 - [ ] Bronze loads are full-reloads, not incremental (see `ingestion/bronze/loader.py`
       module docstring) - only `land_raw_json` (Landing) is incremental so far
 - [ ] Fill in cluster node types in `resources/jobs.yml` / `resources/clusters.yml`
