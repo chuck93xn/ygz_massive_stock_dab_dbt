@@ -20,10 +20,64 @@ models:
               - ticker
               - trade_date
 
-  - name: stg_tickers
-    description: Deduplicated ticker reference data.
+  - name: stg_ticker_overview
+    description: Deduplicated ticker overview/reference data, one row per ticker/snapshot_date.
     columns:
       - name: ticker
         tests:
           - not_null
+      - name: snapshot_date
+        tests:
+          - not_null
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - ticker
+              - snapshot_date
+
+  - name: stg_splits
+    description: Deduplicated stock split events, one row per split_id.
+    columns:
+      - name: split_id
+        tests:
+          - not_null
           - unique
+      - name: ticker
+        tests:
+          - not_null
+
+  - name: stg_dividends
+    description: Deduplicated dividend events, one row per dividend_id.
+    columns:
+      - name: dividend_id
+        tests:
+          - not_null
+          - unique
+      - name: ticker
+        tests:
+          - not_null
+
+  - name: stg_news_articles
+    description: Deduplicated news article metadata, one row per article_id.
+    columns:
+      - name: article_id
+        tests:
+          - not_null
+          - unique
+
+  - name: stg_news_sentiment
+    description: Deduplicated per-(article, ticker) sentiment insights.
+    columns:
+      - name: article_id
+        tests:
+          - not_null
+      - name: ticker
+        tests:
+          - not_null
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - article_id
+              - ticker
