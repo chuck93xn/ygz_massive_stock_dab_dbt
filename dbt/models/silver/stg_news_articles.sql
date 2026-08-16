@@ -12,6 +12,7 @@ renamed as (
         publisher_name,
         publisher_homepage_url,
         publisher_logo_url,
+        publisher_favicon_url,
         _ingested_at,
         _source_file
     from source

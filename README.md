@@ -18,9 +18,17 @@ aggregation tables.
 | **Gold**    | Delta table, analysis-ready        | dbt Core            | Daily returns, moving averages, volatility, ticker dimension     |
 
 Watchlist is a fixed 10 tickers (see `plan/requirements/requirement_breakdown.md`, local-only) - all 5
-massive.com endpoints (daily bars, ticker overview, splits, dividends, news) are landed and
-Bronze-loaded for each. Silver and Gold models are both aligned with the real Bronze schema;
-`dim_ticker` is a proper SCD2 dimension via a dbt snapshot.
+massive.com endpoints (daily bars, ticker overview, splits, dividends, news) are landed daily and
+Bronze-loaded for each. `land_raw_json` pulls all 5 sources every run (not just daily_bars), but
+"daily" doesn't mean "incremental" at the vendor API level for all of them: daily_bars/news use a
+bounded window, ticker_overview is always just today's snapshot, and splits/dividends have no date
+param at all - the vendor replays each ticker's full event history on every call. Bronze is what
+actually guarantees no duplicates: each `load_*_to_bronze` anti-joins against each table's natural
+key before appending, so re-running a load is safe regardless of whether Landing handed it genuinely
+new data or the same history again. See `ingestion/bronze/loader.py`'s module docstring and
+`plan/records/05_bronze_landing_incremental_process.md` for the full story, including a first design
+(partition-based filtering) that looked right but wasn't. Silver and Gold models are both aligned
+with the real Bronze schema; `dim_ticker` is a proper SCD2 dimension via a dbt snapshot.
 
 ## Repo layout
 
@@ -43,10 +51,14 @@ src/ingestion/
   bronze/
     loader.py                    # load_*_to_bronze() - pure functions
     job.py                         # load_bronze() - the load_bronze DAB job entry point
+tests/
+  test_massive_client.py          # MassiveClient logic against a fake session
+  test_bronze_loader.py            # _exclude_existing_keys bootstrap case (no real Spark locally)
 scripts/
   landing/                      # one-time/rerunnable backfill scripts, one per source
   bronze/
     reload_bronze.py               # drop + reload all 6 Bronze tables from current Landing data
+    verify_incremental.py            # rerun load_bronze() twice, assert row counts don't move
   dbc_connection_check.py / massive_api_check.py / setup_env*.ps1   # not layer-specific
 dbt/
   dbt_project.yml
@@ -63,6 +75,8 @@ dbt/
     dim_ticker_snapshot.sql      # SCD2 source for dim_ticker (strategy=check)
   tests/
     assert_dim_ticker_single_current_version.sql   # singular test: SCD2 invariant
+.github/workflows/
+  test.yml                     # pytest on every PR/push to main - active, no secrets needed
 .github/workflows-disabled/
   deploy-dev.yml               # auto-deploy on push to main (disabled, see below)
   deploy-test.yml              # deploy to staging on PR / manual dispatch (disabled)
@@ -136,12 +150,17 @@ Created under the `DBT` profile in `~/.databrickscfg` (Azure workspace
 
 ## CI/CD
 
-The deploy workflows live in `.github/workflows-disabled/`, not
-`.github/workflows/` — GitHub Actions only scans the latter, so they're
-inert. They were failing on every push (no `DATABRICKS_HOST_*`/`TOKEN_*`
-secrets configured, and `staging`/`prod` targets are still placeholders),
-so they're parked until the project is far enough along to actually
-deploy. See `.github/workflows-disabled/README.md` for how to re-enable.
+`.github/workflows/test.yml` runs `pytest tests/` on every PR and push to
+`main` - plain Python, no Databricks connection or secrets needed, so it's
+active today.
+
+The *deploy* workflows are a separate thing and live in
+`.github/workflows-disabled/`, not `.github/workflows/` — GitHub Actions
+only scans the latter, so they're inert. They were failing on every push
+(no `DATABRICKS_HOST_*`/`TOKEN_*` secrets configured, and `staging`/`prod`
+targets are still placeholders), so they're parked until the project is far
+enough along to actually deploy. See `.github/workflows-disabled/README.md`
+for how to re-enable.
 
 ## Status / TODO
 
@@ -152,8 +171,12 @@ deploy. See `.github/workflows-disabled/README.md` for how to re-enable.
 - [x] Align Silver dbt models with the real Bronze table shapes
 - [x] Align Gold dbt models with the real Bronze table shapes, `dim_ticker` as SCD2
       via dbt snapshot (see `plan/design/data_model_design.md`)
-- [ ] Bronze loads are full-reloads, not incremental (see `ingestion/bronze/loader.py`
-      module docstring) - only `land_raw_json` (Landing) is incremental so far
+- [x] Land all 5 sources daily (not just daily_bars) and make Bronze loads incremental
+      via natural-key anti-join (see `ingestion/bronze/loader.py` module docstring)
+- [x] Add a PR-triggered `pytest` CI gate (`.github/workflows/test.yml`) - separate from
+      the deploy workflows below, needs no Databricks connection or secrets
+- [ ] Wire `MASSIVE_API_KEY` into `resources/jobs.yml` via a Databricks secret scope -
+      the real job has no way to read it yet (still assumes a local `.env`)
 - [ ] Fill in cluster node types in `resources/jobs.yml` / `resources/clusters.yml`
 - [ ] Create staging/prod catalogs + workspaces and fill in their `REPLACE_WITH_*` placeholders
 - [ ] Phase 2: Structured Streaming job + real-time aggregation tables
