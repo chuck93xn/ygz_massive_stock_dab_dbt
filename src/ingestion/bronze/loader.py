@@ -5,14 +5,25 @@ against real landed data in sketch/bronze_dev/*.ipynb. Bronze keeps these
 as fixed, typed columns but doesn't dedup/clean/rename beyond that - that's
 Silver's job in dbt.
 
-These are full-loads: each `load_*_to_bronze` reads everything under
-`landing_path`, not just newly-landed files. Landing's own incrementality
-(how far back an API pull goes) is a separate concern from Bronze's - see
-plan/requirements/requirement_breakdown.md. Making this incremental (e.g. only reading
-the latest date= partition, or Auto Loader) is a deliberately separate,
-not-yet-built step; running these repeatedly with `mode("append")` today
-would duplicate rows, so only call them when landing_path points at files
-that haven't been loaded into `bronze_table` yet.
+Incremental by natural-key anti-join, not by limiting what's read: each
+`load_*_to_bronze` still reads the full Landing history for its source
+every run (cheap at this project's 10-ticker scale), then anti-joins out
+any row whose natural key (e.g. (ticker, trade_date) for daily_bars,
+split_id for splits) already exists in `bronze_table` before appending.
+
+An earlier version of this tried to prune by the `date=` Landing partition
+instead (only read partitions newer than a watermark). That looked right
+but was wrong: massive.com's splits/dividends/ticker_overview endpoints
+replay full history on every call (no date filter), so a new day's
+partition isn't incremental data, it's the same history again - "only read
+new partitions" ended up re-appending the entire table's history on every
+run instead of preventing duplicates. Anti-joining on the natural key is
+correct regardless of whether a source's Landing payload is a true delta
+or a full replay, which is why it's used everywhere here instead.
+
+First run against a table that doesn't exist yet has nothing to anti-join
+against, so it reads and inserts everything - same cold-start behavior as
+before.
 """
 
 from __future__ import annotations
@@ -102,8 +113,26 @@ _NEWS_ARTICLES_SELECT = [
     "record.publisher.name as publisher_name",
     "record.publisher.homepage_url as publisher_homepage_url",
     "record.publisher.logo_url as publisher_logo_url",
+    "record.publisher.favicon_url as publisher_favicon_url",
     *_AUDIT_COLUMNS,
 ]
+
+
+def _exclude_existing_keys(
+    spark: SparkSession,
+    structured: DataFrame,
+    bronze_table: str,
+    key_cols: list[str],
+) -> DataFrame:
+    """Anti-join out any row whose key_cols already exist in bronze_table,
+    so re-running a load doesn't insert duplicates - regardless of whether
+    the Landing payload it read was genuinely new data or a full replay of
+    history. No-op (reads/writes everything) on the very first run, when
+    bronze_table doesn't exist yet."""
+    if not spark.catalog.tableExists(bronze_table):
+        return structured
+    existing_keys = spark.table(bronze_table).select(*key_cols).distinct()
+    return structured.join(existing_keys, on=key_cols, how="left_anti")
 
 
 def _load(
@@ -113,10 +142,13 @@ def _load(
     select_exprs: list[str],
     *,
     dedup_subset: list[str] | None = None,
+    key_cols: list[str] | None = None,
 ) -> DataFrame:
     structured = spark.read.json(landing_path).selectExpr(*select_exprs)
     if dedup_subset:
         structured = structured.dropDuplicates(dedup_subset)
+    if key_cols:
+        structured = _exclude_existing_keys(spark, structured, bronze_table, key_cols)
     (
         structured.write.format("delta")
         .mode("append")
@@ -127,28 +159,59 @@ def _load(
 
 
 def load_daily_bars_to_bronze(spark: SparkSession, *, landing_path: str, bronze_table: str) -> DataFrame:
-    return _load(spark, landing_path, bronze_table, _DAILY_BARS_SELECT)
+    return _load(spark, landing_path, bronze_table, _DAILY_BARS_SELECT, key_cols=["ticker", "trade_date"])
 
 
 def load_ticker_overview_to_bronze(spark: SparkSession, *, landing_path: str, bronze_table: str) -> DataFrame:
-    return _load(spark, landing_path, bronze_table, _TICKER_OVERVIEW_SELECT)
+    """Bronze deliberately keeps one row per (ticker, calendar day landed) -
+    not one row per ticker - so fct_ticker_daily_metrics can accumulate real
+    daily history (see plan/design/data_model_design.md). The API response
+    has no date field of its own, so the idempotency key derives a day from
+    _ingested_at on both sides of the anti-join; that derived column is
+    never persisted (Silver's stg_ticker_overview.sql already derives the
+    same thing as snapshot_date, so Bronze doesn't need its own copy)."""
+    structured = spark.read.json(landing_path).selectExpr(*_TICKER_OVERVIEW_SELECT)
+    if spark.catalog.tableExists(bronze_table):
+        keyed = structured.selectExpr("*", "cast(_ingested_at as date) as _ingested_date")
+        existing_keys = (
+            spark.table(bronze_table)
+            .selectExpr("ticker", "cast(_ingested_at as date) as _ingested_date")
+            .distinct()
+        )
+        structured = keyed.join(existing_keys, on=["ticker", "_ingested_date"], how="left_anti").drop(
+            "_ingested_date"
+        )
+    (
+        structured.write.format("delta")
+        .mode("append")
+        .option("mergeSchema", "true")
+        .saveAsTable(bronze_table)
+    )
+    return structured
 
 
 def load_splits_to_bronze(spark: SparkSession, *, landing_path: str, bronze_table: str) -> DataFrame:
-    return _load(spark, landing_path, bronze_table, _SPLITS_SELECT)
+    return _load(spark, landing_path, bronze_table, _SPLITS_SELECT, key_cols=["split_id"])
 
 
 def load_dividends_to_bronze(spark: SparkSession, *, landing_path: str, bronze_table: str) -> DataFrame:
-    return _load(spark, landing_path, bronze_table, _DIVIDENDS_SELECT)
+    return _load(spark, landing_path, bronze_table, _DIVIDENDS_SELECT, key_cols=["dividend_id"])
 
 
 def load_news_articles_to_bronze(spark: SparkSession, *, landing_path: str, bronze_table: str) -> DataFrame:
     """One row per article. The same article can be landed multiple times
-    (once per watchlist ticker whose query happened to return it), so this
-    dedups on article_id - unlike the other sources, re-running this with
-    mode("append") would otherwise accumulate duplicate article rows even
-    within a single load, not just across repeated runs."""
-    return _load(spark, landing_path, bronze_table, _NEWS_ARTICLES_SELECT, dedup_subset=["article_id"])
+    (once per watchlist ticker whose query happened to return it, and again
+    on subsequent days since the vendor's recent-news window overlaps run
+    to run), so this dedups on article_id both within a single batch
+    (dedup_subset) and across runs (key_cols)."""
+    return _load(
+        spark,
+        landing_path,
+        bronze_table,
+        _NEWS_ARTICLES_SELECT,
+        dedup_subset=["article_id"],
+        key_cols=["article_id"],
+    )
 
 
 def load_news_sentiment_to_bronze(spark: SparkSession, *, landing_path: str, bronze_table: str) -> DataFrame:
@@ -169,6 +232,7 @@ def load_news_sentiment_to_bronze(spark: SparkSession, *, landing_path: str, bro
         )
         .dropDuplicates(["article_id", "ticker"])
     )
+    sentiment = _exclude_existing_keys(spark, sentiment, bronze_table, ["article_id", "ticker"])
     (
         sentiment.write.format("delta")
         .mode("append")
