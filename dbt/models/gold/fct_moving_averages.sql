@@ -1,5 +1,5 @@
 with daily_bars as (
-    select * from {{ ref('stg_daily_bars') }}
+    select * from {{ ref('fct_daily_bars') }}
 )
 
 select

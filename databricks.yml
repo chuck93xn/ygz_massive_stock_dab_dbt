@@ -29,6 +29,9 @@ variables:
     default: silver
   gold_schema:
     default: gold
+  snapshot_schema:
+    description: Schema dbt snapshots write to - kept separate from gold since snapshot tables carry dbt-internal SCD2 columns
+    default: snapshots
   landing_volume_path:
     description: Unity Catalog Volume path raw vendor JSON is appended to
     default: /Volumes/ygz_massive_stock_dev/landing/raw
