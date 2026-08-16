@@ -11,6 +11,8 @@ renamed as (
         cast(low_price as double)   as low_price,
         cast(close_price as double) as close_price,
         cast(volume as bigint)      as volume,
+        cast(vwap as double)        as vwap,
+        cast(transaction_count as bigint) as transaction_count,
         -- assumes the vendor timestamps are UTC already; revisit once the
         -- real vendor's timezone convention is known.
         _ingested_at,

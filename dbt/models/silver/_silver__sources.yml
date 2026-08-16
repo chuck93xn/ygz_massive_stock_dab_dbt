@@ -9,7 +9,23 @@ sources:
         description: Structured daily OHLCV bars parsed from Landing JSON, not yet cleaned.
         config:
           loaded_at_field: _ingested_at
-      - name: tickers
-        description: Structured ticker/reference data parsed from Landing JSON.
+      - name: ticker_overview
+        description: Structured ticker reference/overview data parsed from Landing JSON.
+        config:
+          loaded_at_field: _ingested_at
+      - name: splits
+        description: Structured stock split events parsed from Landing JSON.
+        config:
+          loaded_at_field: _ingested_at
+      - name: dividends
+        description: Structured dividend events parsed from Landing JSON.
+        config:
+          loaded_at_field: _ingested_at
+      - name: news_articles
+        description: Structured news article metadata parsed from Landing JSON, deduped on article_id.
+        config:
+          loaded_at_field: _ingested_at
+      - name: news_sentiment
+        description: Structured per-(article, ticker) sentiment insights parsed from Landing JSON.
         config:
           loaded_at_field: _ingested_at
