@@ -2,7 +2,7 @@
 
 {{
     config(
-        target_schema=var('snapshot_schema', 'snapshots'),
+        target_schema='gold',
         unique_key='ticker',
         strategy='check',
         check_cols=['name', 'primary_exchange', 'sic_code', 'type', 'active', 'currency_name'],

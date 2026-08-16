@@ -61,7 +61,6 @@ resources:
             project_directory: ../dbt
             commands:
               - "dbt deps"
-              - "dbt snapshot"
               - "dbt build"
             catalog: "${var.catalog}"
             schema: "${var.silver_schema}"
