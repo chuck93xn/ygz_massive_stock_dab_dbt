@@ -3,7 +3,7 @@ target this is deployed under (see pyproject.toml [project.scripts] +
 databricks.yml targets.test/targets.prod resources.jobs.promote_from_dev_job
 python_wheel_task - not resources/jobs.yml, since this job is only ever
 deployed under targets.test/targets.prod, never the shared file - see
-plan/records/09_bronze_promotion_process.md).
+plan/records/08_bronze_promotion_process.md).
 
 Source is hardcoded to dev's Landing Volume regardless of target - dev is
 always the one real source of truth. Dest follows the deploying target via

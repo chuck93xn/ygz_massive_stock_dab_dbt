@@ -2,7 +2,7 @@
 (no Landing data lands in between, since this script runs both calls
 itself) must produce identical row counts in all 6 Bronze tables. If any
 table grows, the natural-key anti-join in ingestion/bronze/loader.py has
-regressed - see plan/records/05_bronze_landing_incremental_process.md for why
+regressed - see plan/records/04_bronze_landing_incremental_process.md for why
 this property matters (an earlier design silently duplicated every row on
 rerun).
 

@@ -22,7 +22,7 @@ BACKOFF_BASE_SECONDS = 1.5
 
 # massive.com's free tier is rate limited to 5 requests/minute (from the
 # vendor's own docs - confirmed after 1s and 3s delays both still hit real
-# 429s in testing, see plan/records/06_job_serverless_process.md). 60/5=12s
+# 429s in testing, see plan/records/05_job_serverless_process.md). 60/5=12s
 # is the strict minimum gap between calls; this adds a 1s margin. The
 # Aggregates (Custom Bars) endpoint separately caps a single request at
 # 50000 results, which only matters at minute-level granularity (~1.5

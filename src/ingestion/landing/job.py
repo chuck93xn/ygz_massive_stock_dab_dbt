@@ -13,7 +13,7 @@ refreshing, instead of one job landing all 5 sources together:
 
 A single combined run was 10 tickers x 5 sources = 50 massive.com calls
 back-to-back, which is what triggered real 429s in testing (see
-plan/records/06_job_serverless_process.md). Splitting cuts the job that
+plan/records/05_job_serverless_process.md). Splitting cuts the job that
 actually needs to run daily down to 20 calls, and moves the other 30 to a
 job that only needs to run once a week.
 """

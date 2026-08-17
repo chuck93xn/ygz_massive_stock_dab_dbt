@@ -46,7 +46,7 @@ targets:
   # and databricks/cli issues #2872/#2878, the latter still an open feature
   # request) - defining a resource only inside one target's own
   # `resources:` block is the supported way to scope it to that target. See
-  # plan/records/09_bronze_promotion_process.md.
+  # plan/records/08_bronze_promotion_process.md.
   dev:
     mode: development
     default: true
@@ -146,10 +146,10 @@ targets:
 
   # test and prod are the same workspace as dev, just different UC catalogs
   # (no separate workspace, no service principal - see
-  # plan/records/08_cicd_simplification_process.md). Neither calls
+  # plan/records/07_cicd_simplification_process.md). Neither calls
   # massive.com itself: both get real data via promote_from_dev_job, which
   # copies dev's Landing Volume in and runs load_bronze against their own
-  # catalog - see plan/records/09_bronze_promotion_process.md. test exists
+  # catalog - see plan/records/08_bronze_promotion_process.md. test exists
   # so the promotion + Silver/Gold pipeline can be validated against the
   # same logic prod uses, before it touches prod for real.
   test:
@@ -169,7 +169,7 @@ targets:
             load_bronze against this target's catalog - only defined under
             targets.test/targets.prod, not the shared resources/jobs.yml,
             since dev has nothing to promote from into itself. See
-            plan/records/09_bronze_promotion_process.md.
+            plan/records/08_bronze_promotion_process.md.
           tags:
             project: ygz-massive-stock
             layer: promotion
@@ -233,7 +233,7 @@ targets:
             load_bronze against this target's catalog - only defined under
             targets.test/targets.prod, not the shared resources/jobs.yml,
             since dev has nothing to promote from into itself. See
-            plan/records/09_bronze_promotion_process.md.
+            plan/records/08_bronze_promotion_process.md.
           tags:
             project: ygz-massive-stock
             layer: promotion
