@@ -1,13 +1,14 @@
-name: CI - validate dev (push) / deploy dev (PR)
+name: CD - deploy test (merge to main) / deploy prod (manual)
 
 on:
   push:
-    branches-ignore:
+    branches:
       - main
-  pull_request:
+  workflow_dispatch: {}
 
 jobs:
   test:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,10 +18,11 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest tests/ -v
 
-  validate-dev:
+  deploy-test:
     if: github.event_name == 'push'
     needs: test
     runs-on: ubuntu-latest
+    environment: test
     env:
       DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
       DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
@@ -32,24 +34,30 @@ jobs:
       - run: pip install build
       - uses: databricks/setup-cli@main
       - name: Validate bundle
-        run: databricks bundle validate -t dev
-
-  deploy-dev:
-    if: github.event_name == 'pull_request'
-    needs: test
-    runs-on: ubuntu-latest
-    environment: dev
-    env:
-      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: pip install build
-      - uses: databricks/setup-cli@main
-      - name: Validate bundle
-        run: databricks bundle validate -t dev
+        run: databricks bundle validate -t test
       - name: Deploy bundle
-        run: databricks bundle deploy -t dev
+        run: databricks bundle deploy -t test
+
+  deploy-prod:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # Only trigger for this job is workflow_dispatch - deploying prod is a
+    # deliberate human action, not something that follows automatically
+    # from a push. No `needs: test` here: by the time you're triggering
+    # this, the commit on main already passed CI (ci-dev.yml/this file's
+    # own `test` job on push) - re-running pytest adds no new signal.
+    environment: prod
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install build
+      - uses: databricks/setup-cli@main
+      - name: Validate bundle
+        run: databricks bundle validate -t prod
+      - name: Deploy bundle
+        run: databricks bundle deploy -t prod

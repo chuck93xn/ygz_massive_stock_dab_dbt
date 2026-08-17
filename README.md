@@ -91,10 +91,8 @@ dbt/
   tests/
     assert_dim_ticker_single_current_version.sql   # singular test: SCD2 invariant
 .github/workflows/
-  ci-validate.yml               # push (any branch but main): pytest, then validate (not deploy) dev
-  ci-dev.yml                     # pull_request: pytest, then (needs: test) deploy to dev
-  cd-test.yml                     # push to main: pytest, then (needs: test) deploy to test
-  cd-prod.yml                      # workflow_dispatch only: deploy to prod (manual confirmation)
+  ci-dev.yml                   # push (any branch but main): validate dev only; pull_request: deploy dev
+  cd-test-prod.yml               # push to main: deploy test; workflow_dispatch: deploy prod (manual)
 ```
 
 ## Local setup
@@ -175,20 +173,23 @@ Created under the `DBT` profile in `~/.databrickscfg` (Azure workspace
 
 ## CI/CD
 
-Four workflows, each a single trigger → single action, all gated by `pytest tests/` first:
+Two workflows, each handling two trigger→action pairs via job-level `if: github.event_name`,
+all gated by `pytest tests/` first:
 
-| Trigger | Workflow | Action |
+| Workflow | Trigger | Action |
 | --- | --- | --- |
-| push (any branch but `main`) | `ci-validate.yml` | `bundle validate -t dev` (no deploy) |
-| pull request | `ci-dev.yml` | `bundle validate`/`deploy -t dev` |
-| push to `main` | `cd-test.yml` | `bundle validate`/`deploy -t test` |
-| manual (`workflow_dispatch`) | `cd-prod.yml` | `bundle validate`/`deploy -t prod` |
+| `ci-dev.yml` | push (any branch but `main`) | `bundle validate -t dev` (no deploy) |
+| `ci-dev.yml` | pull request | `bundle validate`/`deploy -t dev` |
+| `cd-test-prod.yml` | push to `main` | `bundle validate`/`deploy -t test` |
+| `cd-test-prod.yml` | manual (`workflow_dispatch`) | `bundle validate`/`deploy -t prod` |
 
 Deploying to prod is a deliberate action, not something that follows automatically from a push -
-`cd-prod.yml` only has a `workflow_dispatch` trigger, so it only runs when someone goes to the
+the `deploy-prod` job only runs on `workflow_dispatch`, so it only fires when someone goes to the
 Actions tab and clicks "Run workflow". That sidesteps depending on GitHub Environment "required
 reviewers" protection rules (not confirmed available on this repo's plan) for the same manual-gate
-effect.
+effect. (An earlier version split these into four single-trigger files - reverted after the
+GitHub Actions sidebar's alphabetical-by-name ordering, not the trigger design, turned out to be
+the real source of confusion - see `plan/records/12_cicd_consolidate_process.md`.)
 
 Three environments, same Databricks workspace, different UC catalogs (no separate workspaces,
 no service principal - see `plan/records/08_cicd_simplification_process.md`). None of the
@@ -197,7 +198,8 @@ either the job's own schedule (dev's three jobs and test's `promote_from_dev_job
 unpaused and run on cron - see Status/TODO) or a manual `bundle run` (prod stays fully manual,
 deliberately - no schedule at all). Requires the repo secrets `DATABRICKS_HOST`/
 `DATABRICKS_TOKEN` and the `ygz_massive_stock_test`/`ygz_massive_stock_prod` catalogs. See
-`plan/records/10_cicd_trigger_refinement_process.md`/`11_job_scheduling_cost_process.md`.
+`plan/records/10_cicd_trigger_refinement_process.md`/`11_job_scheduling_cost_process.md`/
+`12_cicd_consolidate_process.md`.
 
 ## Status / TODO
 
@@ -229,10 +231,10 @@ deliberately - no schedule at all). Requires the repo secrets `DATABRICKS_HOST`/
       "sideways"), and the new `fct_volume_anomalies.is_volume_spike` (2x the trailing
       20-day average volume). Verified against real data, not just passing tests - see
       `plan/records/07_gold_business_rules_process.md`
-- [x] CI/CD is live, four single-purpose workflows gated by `pytest`: push validates dev,
-      PR deploys dev, merge to main deploys test, `workflow_dispatch` (manual) deploys
-      prod - see the CI/CD section above and
-      `plan/records/10_cicd_trigger_refinement_process.md`
+- [x] CI/CD is live, two workflows gated by `pytest`: push validates dev, PR deploys dev,
+      merge to main deploys test, `workflow_dispatch` (manual) deploys prod - see the CI/CD
+      section above and `plan/records/10_cicd_trigger_refinement_process.md`/
+      `12_cicd_consolidate_process.md`
 - [x] `dev` is the only target that calls massive.com; `test`/`prod` get real data via
       `promote_from_dev_job` (copies dev's Landing Volume in, then runs `load_bronze` against
       that target's catalog). `ingestion_daily_job`/`ingestion_reference_job` are only defined
@@ -247,5 +249,5 @@ deliberately - no schedule at all). Requires the repo secrets `DATABRICKS_HOST`/
       (rough cost estimate ~$40-50/year on Azure serverless job compute pricing, ~$0.70-0.95/DBU-hour
       - see `plan/records/11_job_scheduling_cost_process.md`); `test`'s `promote_from_dev_job`/
       `dbt_job` run weekly (Monday, offset 30 min apart); `prod` stays fully manual, no schedule -
-      deliberate, matching `cd-prod.yml`'s manual-confirmation deploy gate
+      deliberate, matching `cd-test-prod.yml`'s manual-confirmation deploy gate
 - No real-time/Structured Streaming phase - dropped, not needed for this project
