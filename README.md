@@ -28,6 +28,15 @@ history again. See `ingestion/bronze/loader.py`'s module docstring and
 (partition-based filtering) that looked right but wasn't. Silver and Gold models are both aligned
 with the real Bronze schema; `dim_ticker` is a proper SCD2 dimension via a dbt snapshot.
 
+`dev` is the only target that calls massive.com for real - `ingestion_daily_job`/
+`ingestion_reference_job` are only defined under `targets.dev` in `databricks.yml`, not the shared
+`resources/jobs.yml`, so they structurally don't exist under `-t test`/`-t prod` at all (DAB has no
+"exclude this resource from a target" mechanism - defining a resource only inside one target's own
+block is the supported way to scope it). `test` and `prod` both get real data via
+`promote_from_dev_job` instead: it copies dev's Landing Volume into that target's, then runs
+`load_bronze` against that target's catalog - same promotion logic for both, on demand, not on a
+schedule. See `plan/records/09_bronze_promotion_process.md`.
+
 ## Repo layout
 
 `src/ingestion/` splits into one subpackage per medallion layer. Each layer has pure
@@ -36,10 +45,13 @@ functions in its own module, and - only where a real DAB job needs to call into 
 the only place `main()`-shaped code lives; everything else is importable functions.
 
 ```
-databricks.yml              # DAB bundle root config (targets: dev/prod, same workspace)
+databricks.yml              # DAB bundle root config (targets: dev/test/prod, same workspace).
+                             #   targets.dev.resources.jobs: ingestion_daily_job,
+                             #   ingestion_reference_job (Landing+Bronze, dev-only - see Architecture).
+                             #   targets.test/targets.prod.resources.jobs: promote_from_dev_job
 resources/
-  jobs.yml                  # ingestion_daily_job, ingestion_reference_job (Landing+Bronze,
-                             #   different schedules), dbt_job (Silver+Gold) - all serverless
+  jobs.yml                  # dbt_job (Silver+Gold) - the only job shared across all 3 targets,
+                             #   serverless
 src/ingestion/
   settings.py                 # env-var driven runtime config, shared across layers
   landing/
@@ -49,9 +61,14 @@ src/ingestion/
   bronze/
     loader.py                    # load_*_to_bronze() - pure functions
     job.py                         # load_bronze() - the load_bronze DAB job entry point
+  promotion/
+    copy_landing.py               # copy_landing_volume() - pure function, file-by-file dev -> target
+    job.py                          # copy_landing_from_dev() - the promote_from_dev_job DAB job entry point
 tests/
   test_massive_client.py          # MassiveClient logic against a fake session
   test_bronze_loader.py            # _exclude_existing_keys bootstrap case (no real Spark locally)
+  test_promotion.py                 # copy_landing_volume() against a fake dbutils
+  test_settings.py                   # Settings catalog override / from_job_argv precedence
 scripts/
   landing/                      # one-time/rerunnable backfill scripts, one per source
   bronze/
@@ -74,8 +91,10 @@ dbt/
   tests/
     assert_dim_ticker_single_current_version.sql   # singular test: SCD2 invariant
 .github/workflows/
-  ci-dev.yml                   # PR: pytest, then (needs: test) deploy to dev
-  cd-prod.yml                   # push to main: pytest, then (needs: test) deploy to prod
+  ci-validate.yml               # push (any branch but main): pytest, then validate (not deploy) dev
+  ci-dev.yml                     # pull_request: pytest, then (needs: test) deploy to dev
+  cd-test.yml                     # push to main: pytest, then (needs: test) deploy to test
+  cd-prod.yml                      # workflow_dispatch only: deploy to prod (manual confirmation)
 ```
 
 ## Local setup
@@ -134,41 +153,51 @@ databricks bundle run dbt_job -t dev
 ```
 
 `dev` target already points at a real workspace/catalog/warehouse (see `databricks.yml`).
-`prod` points at the same real workspace (different UC catalog, `ygz_massive_stock_prod`) -
-no more `REPLACE_WITH_*` placeholders, but that catalog doesn't exist yet, so `-t prod` only
-works past `validate` once it's been created. No `staging` target - see
+`test`/`prod` point at the same real workspace, different UC catalogs (`ygz_massive_stock_test`/
+`ygz_massive_stock_prod`) - `-t test`/`-t prod` only work past `validate` once those catalogs
+exist. No separate workspaces, no service principal - see
 `plan/records/08_cicd_simplification_process.md`.
 
-## Databricks resources (dev)
+## Databricks resources
 
 Created under the `DBT` profile in `~/.databrickscfg` (Azure workspace
 `adb-7405607192769716.16.azuredatabricks.net`):
 
-- Catalog `ygz_massive_stock_dev`, with `landing` / `bronze` / `silver` / `gold` schemas
-  (`dim_ticker_snapshot` also lives in `gold` - dbt snapshots don't get their own schema here)
-- Volume `ygz_massive_stock_dev.landing.raw_massive_data` (Landing layer append target)
+- Catalogs `ygz_massive_stock_dev`/`ygz_massive_stock_test`/`ygz_massive_stock_prod`, each with
+  `landing` / `bronze` / `silver` / `gold` schemas (`dim_ticker_snapshot` also lives in `gold` -
+  dbt snapshots don't get their own schema here) and a `landing.raw_massive_data` Volume
 - SQL warehouse `2x Small serverless Warehouse` (id `04147fab6edc9014`) - what `dbt_task`/`dbt debug` connect through
-- Secret scope `ygz-massive-stock`, holding `MASSIVE_API_KEY` - both jobs in `resources/jobs.yml`
-  run on serverless compute, which has no cluster to attach `spark_env_vars`-style secret
-  references to, so `ingestion/settings.py` reads it via `dbutils.secrets.get()` instead (falls
-  back to the local `.env`/env var when `dbutils` isn't a real Databricks runtime, i.e. everywhere
-  outside an actual job)
+- Secret scope `ygz-massive-stock`, holding `MASSIVE_API_KEY` - the ingestion jobs run on
+  serverless compute, which has no cluster to attach `spark_env_vars`-style secret references to,
+  so `ingestion/settings.py` reads it via `dbutils.secrets.get()` instead (falls back to the
+  local `.env`/env var when `dbutils` isn't a real Databricks runtime, i.e. everywhere outside an
+  actual job)
 
 ## CI/CD
 
-Two workflows, both active:
+Four workflows, each a single trigger → single action, all gated by `pytest tests/` first:
 
-- `.github/workflows/ci-dev.yml` (on every PR): `pytest tests/`, then - only if that
-  passes (`needs: test`) - `databricks bundle validate`/`deploy -t dev`.
-- `.github/workflows/cd-prod.yml` (on push to `main`, or manual dispatch): same
-  `pytest` gate, then `bundle validate`/`deploy -t prod`.
+| Trigger | Workflow | Action |
+| --- | --- | --- |
+| push (any branch but `main`) | `ci-validate.yml` | `bundle validate -t dev` (no deploy) |
+| pull request | `ci-dev.yml` | `bundle validate`/`deploy -t dev` |
+| push to `main` | `cd-test.yml` | `bundle validate`/`deploy -t test` |
+| manual (`workflow_dispatch`) | `cd-prod.yml` | `bundle validate`/`deploy -t prod` |
 
-Deliberately two environments, not three: `prod` is the same Databricks workspace as
-`dev`, just a different UC catalog (no separate workspace, no service principal - see
-`plan/records/08_cicd_simplification_process.md`). Neither workflow ever runs the
-ingestion/dbt jobs, just deploys their definitions (still `pause_status: PAUSED` -
-see Status/TODO). Requires the repo secrets `DATABRICKS_HOST`/`DATABRICKS_TOKEN` and
-the `ygz_massive_stock_prod` catalog, both already set up.
+Deploying to prod is a deliberate action, not something that follows automatically from a push -
+`cd-prod.yml` only has a `workflow_dispatch` trigger, so it only runs when someone goes to the
+Actions tab and clicks "Run workflow". That sidesteps depending on GitHub Environment "required
+reviewers" protection rules (not confirmed available on this repo's plan) for the same manual-gate
+effect.
+
+Three environments, same Databricks workspace, different UC catalogs (no separate workspaces,
+no service principal - see `plan/records/08_cicd_simplification_process.md`). None of the
+workflows ever run the jobs themselves, just deploy their definitions - actual execution is
+either the job's own schedule (dev's three jobs and test's `promote_from_dev_job`/`dbt_job` are
+unpaused and run on cron - see Status/TODO) or a manual `bundle run` (prod stays fully manual,
+deliberately - no schedule at all). Requires the repo secrets `DATABRICKS_HOST`/
+`DATABRICKS_TOKEN` and the `ygz_massive_stock_test`/`ygz_massive_stock_prod` catalogs. See
+`plan/records/10_cicd_trigger_refinement_process.md`/`11_job_scheduling_cost_process.md`.
 
 ## Status / TODO
 
@@ -200,10 +229,23 @@ the `ygz_massive_stock_prod` catalog, both already set up.
       "sideways"), and the new `fct_volume_anomalies.is_volume_spike` (2x the trailing
       20-day average volume). Verified against real data, not just passing tests - see
       `plan/records/07_gold_business_rules_process.md`
-- [x] CI/CD is live: `ci-dev.yml` (PR) and `cd-prod.yml` (push to main) each run
-      `pytest` and only deploy (`bundle deploy`, never `bundle run`) if that passes
-      (`needs: test`). `prod` is the same workspace as `dev`, just a different UC
-      catalog, no service principal, no `staging` tier - see
-      `plan/records/08_cicd_simplification_process.md`
-- Schedules stay `PAUSED` on purpose (cost) - flip in `resources/jobs.yml` whenever wanted
+- [x] CI/CD is live, four single-purpose workflows gated by `pytest`: push validates dev,
+      PR deploys dev, merge to main deploys test, `workflow_dispatch` (manual) deploys
+      prod - see the CI/CD section above and
+      `plan/records/10_cicd_trigger_refinement_process.md`
+- [x] `dev` is the only target that calls massive.com; `test`/`prod` get real data via
+      `promote_from_dev_job` (copies dev's Landing Volume in, then runs `load_bronze` against
+      that target's catalog). `ingestion_daily_job`/`ingestion_reference_job` are only defined
+      under `targets.dev` in `databricks.yml` - not the shared `resources/jobs.yml` - so they
+      structurally don't exist under `-t test`/`-t prod` at all; a documentation-only warning
+      isn't a real guardrail against a job that's still deployed there. Also fixed a latent bug
+      found along the way: `python_wheel_task`s never actually passed `${var.catalog}` through,
+      so every real job run silently defaulted to the dev catalog regardless of target - see
+      `plan/records/09_bronze_promotion_process.md`
+- [x] Schedules are unpaused, tiered by how much each environment's freshness is worth: `dev`'s
+      `ingestion_daily_job`/`ingestion_reference_job`/`dbt_job` run daily/weekly/daily for real
+      (rough cost estimate ~$40-50/year on Azure serverless job compute pricing, ~$0.70-0.95/DBU-hour
+      - see `plan/records/11_job_scheduling_cost_process.md`); `test`'s `promote_from_dev_job`/
+      `dbt_job` run weekly (Monday, offset 30 min apart); `prod` stays fully manual, no schedule -
+      deliberate, matching `cd-prod.yml`'s manual-confirmation deploy gate
 - No real-time/Structured Streaming phase - dropped, not needed for this project

@@ -46,7 +46,7 @@ def land_daily_data() -> None:
     fail-fast, no retry/skip logic here (retries are already handled
     inside MassiveClient).
     """
-    settings = Settings.from_env()
+    settings = Settings.from_job_argv()
     client = MassiveClient(api_key=settings.massive_api_key, base_url=settings.massive_base_url)
 
     end = datetime.now(UTC).date()
@@ -68,7 +68,7 @@ def land_reference_data() -> None:
     anything - a split/dividend landing up to a week after it happened is
     fine at this project's watchlist scale.
     """
-    settings = Settings.from_env()
+    settings = Settings.from_job_argv()
     client = MassiveClient(api_key=settings.massive_api_key, base_url=settings.massive_base_url)
 
     for ticker in WATCHLIST_TICKERS:

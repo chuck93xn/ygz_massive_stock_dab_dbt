@@ -26,7 +26,7 @@ def load_bronze() -> None:
     ingestion.bronze.loader's module docstring on why this isn't
     incremental yet.
     """
-    settings = Settings.from_env()
+    settings = Settings.from_job_argv()
     spark = SparkSession.builder.getOrCreate()
     catalog_schema = f"{settings.catalog}.{settings.bronze_schema}"
 
