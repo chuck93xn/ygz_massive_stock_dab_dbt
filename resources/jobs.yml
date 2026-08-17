@@ -1,42 +1,73 @@
 resources:
   jobs:
-    ingestion_job:
-      name: "[${bundle.target}] stock_ingestion_landing_bronze"
+    ingestion_daily_job:
+      name: "[${bundle.target}] stock_ingestion_daily"
       description: >-
-        Phase 1, stage 1: pulls raw data from the (TBD) market-data vendor's
-        REST API, lands it as raw JSON, then parses it into the Bronze Delta
-        tables.
+        Phase 1, stage 1a: lands daily_bars + news for the watchlist - the
+        two sources that actually change day to day - then loads whatever's
+        new into Bronze. Split from the reference data (see
+        ingestion_reference_job) so the job that runs daily only makes 20
+        massive.com calls instead of 50.
       tags:
         project: ygz-massive-stock
         layer: landing-bronze
-      job_clusters:
-        - job_cluster_key: ingestion_cluster
-          new_cluster:
-            spark_version: "14.3.x-scala2.12"
-            node_type_id: "REPLACE_WITH_NODE_TYPE"
-            num_workers: 1
-            data_security_mode: SINGLE_USER
       tasks:
-        - task_key: land_raw_json
-          job_cluster_key: ingestion_cluster
+        - task_key: land_daily_data
+          environment_key: ingestion_env
           python_wheel_task:
             package_name: ygz_massive_stock_pipeline
-            entry_point: land_raw_json
-          libraries:
-            - whl: ../dist/*.whl
+            entry_point: land_daily_data
         - task_key: load_bronze
           depends_on:
-            - task_key: land_raw_json
-          job_cluster_key: ingestion_cluster
+            - task_key: land_daily_data
+          environment_key: ingestion_env
           python_wheel_task:
             package_name: ygz_massive_stock_pipeline
             entry_point: load_bronze
-          libraries:
-            - whl: ../dist/*.whl
+      environments:
+        - environment_key: ingestion_env
+          spec:
+            environment_version: "2"
+            dependencies:
+              - ../dist/*.whl
       schedule:
         quartz_cron_expression: "0 0 6 * * ?"
         timezone_id: "UTC"
         pause_status: PAUSED  # unpause once the vendor client is wired up
+
+    ingestion_reference_job:
+      name: "[${bundle.target}] stock_ingestion_reference"
+      description: >-
+        Phase 1, stage 1b: lands ticker_overview/splits/dividends for the
+        watchlist - slow-changing reference data that doesn't need a daily
+        pull, since the vendor returns full history on every call regardless
+        - then loads whatever's new into Bronze. Runs weekly, not daily.
+      tags:
+        project: ygz-massive-stock
+        layer: landing-bronze
+      tasks:
+        - task_key: land_reference_data
+          environment_key: ingestion_env
+          python_wheel_task:
+            package_name: ygz_massive_stock_pipeline
+            entry_point: land_reference_data
+        - task_key: load_bronze
+          depends_on:
+            - task_key: land_reference_data
+          environment_key: ingestion_env
+          python_wheel_task:
+            package_name: ygz_massive_stock_pipeline
+            entry_point: load_bronze
+      environments:
+        - environment_key: ingestion_env
+          spec:
+            environment_version: "2"
+            dependencies:
+              - ../dist/*.whl
+      schedule:
+        quartz_cron_expression: "0 0 18 ? * SUN"  # offset from ingestion_daily_job's 06:00 daily
+        timezone_id: "UTC"                        # run - same API key, same rate limit
+        pause_status: PAUSED
 
     dbt_job:
       name: "[${bundle.target}] stock_dbt_silver_gold"
@@ -46,17 +77,10 @@ resources:
       tags:
         project: ygz-massive-stock
         layer: silver-gold
-      job_clusters:
-        - job_cluster_key: dbt_cluster
-          new_cluster:
-            spark_version: "14.3.x-scala2.12"
-            node_type_id: "REPLACE_WITH_NODE_TYPE"
-            num_workers: 1
-            data_security_mode: SINGLE_USER
       tasks:
         - task_key: dbt_build
-          job_cluster_key: dbt_cluster
           depends_on: []
+          environment_key: dbt_env
           dbt_task:
             project_directory: ../dbt
             commands:
@@ -65,9 +89,12 @@ resources:
             catalog: "${var.catalog}"
             schema: "${var.silver_schema}"
             warehouse_id: "${var.warehouse_id}"
-          libraries:
-            - pypi:
-                package: "dbt-databricks>=1.7,<2.0"
+      environments:
+        - environment_key: dbt_env
+          spec:
+            environment_version: "2"
+            dependencies:
+              - "dbt-databricks>=1.7,<2.0"
       schedule:
         quartz_cron_expression: "0 30 6 * * ?"
         timezone_id: "UTC"
