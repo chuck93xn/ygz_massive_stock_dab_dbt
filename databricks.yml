@@ -88,7 +88,7 @@ targets:
               spec:
                 environment_version: "2"
                 dependencies:
-                  - ../dist/*.whl
+                  - dist/*.whl
           schedule:
             quartz_cron_expression: "0 0 6 * * ?"
             timezone_id: "UTC"
@@ -128,7 +128,7 @@ targets:
               spec:
                 environment_version: "2"
                 dependencies:
-                  - ../dist/*.whl
+                  - dist/*.whl
           schedule:
             quartz_cron_expression: "0 0 18 ? * SUN"  # offset from ingestion_daily_job's 06:00 daily
             timezone_id: "UTC"                        # run - same API key, same rate limit
@@ -195,7 +195,7 @@ targets:
               spec:
                 environment_version: "2"
                 dependencies:
-                  - ../dist/*.whl
+                  - dist/*.whl
           # Weekly, not daily: test doesn't need to be as fresh as dev,
           # and running the same promotion+Bronze-load pipeline every day
           # would multiply cost for no new real-world information (dev's
@@ -259,6 +259,6 @@ targets:
               spec:
                 environment_version: "2"
                 dependencies:
-                  - ../dist/*.whl
+                  - dist/*.whl
           # No schedule: promotion is a deliberate manual decision, not
           # something that should run on a timer.
