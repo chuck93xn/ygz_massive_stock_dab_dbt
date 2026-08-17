@@ -4,11 +4,7 @@ Stock market data pipeline built with **Databricks Asset Bundles (DAB)** and **d
 
 ## Architecture
 
-**Phase 1** (current): massive.com REST API → Landing (raw JSON) → Bronze (structured Delta)
-→ Silver/Gold (dbt Core).
-
-**Phase 2** (planned): massive.com WebSocket → Databricks Structured Streaming → real-time
-aggregation tables.
+massive.com REST API → Landing (raw JSON) → Bronze (structured Delta) → Silver/Gold (dbt Core).
 
 | Layer       | Storage                          | Owner              | What happens here                                              |
 | ----------- | --------------------------------- | ------------------ | ---------------------------------------------------------------- |
@@ -205,4 +201,5 @@ for how to re-enable.
       20-day average volume). Verified against real data, not just passing tests - see
       `plan/records/07_gold_business_rules_process.md`
 - [ ] Create staging/prod catalogs + workspaces and fill in their `REPLACE_WITH_*` placeholders
-- [ ] Phase 2: Structured Streaming job + real-time aggregation tables
+- Schedules stay `PAUSED` on purpose (cost) - flip in `resources/jobs.yml` whenever wanted
+- No real-time/Structured Streaming phase - dropped, not needed for this project
