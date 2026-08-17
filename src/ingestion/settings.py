@@ -45,7 +45,7 @@ class Settings:
             # real job never sets it as an env var, so default it here
             # instead of requiring every job task to redeclare it.
             landing_volume_path=os.environ.get(
-                "LANDING_VOLUME_PATH", f"/Volumes/{catalog}/{landing_schema}/raw"
+                "LANDING_VOLUME_PATH", f"/Volumes/{catalog}/{landing_schema}/raw_massive_data"
             ),
         )
 

@@ -31,7 +31,7 @@ variables:
     default: gold
   landing_volume_path:
     description: Unity Catalog Volume path raw vendor JSON is appended to
-    default: /Volumes/ygz_massive_stock_dev/landing/raw
+    default: /Volumes/ygz_massive_stock_dev/landing/raw_massive_data
   warehouse_id:
     description: SQL warehouse the dbt_task connects through
     default: "04147fab6edc9014"  # "2x Small serverless Warehouse" in the DBT workspace
@@ -43,20 +43,20 @@ targets:
     workspace:
       host: https://adb-7405607192769716.16.azuredatabricks.net
 
-  staging:
-    mode: production
-    workspace:
-      host: https://REPLACE_WITH_STAGING_WORKSPACE.cloud.databricks.com
-    variables:
-      catalog: staging_catalog
-      landing_volume_path: /Volumes/staging_catalog/landing/raw
-
+  # prod is deliberately the *same* workspace as dev, just a different UC
+  # catalog - no separate workspace, no staging tier, no service principal.
+  # This project is a solo/personal pipeline; the point of having a prod
+  # target at all is to exercise a real CI/CD deploy flow, not to stand up
+  # enterprise-style environment isolation. See
+  # plan/records/08_cicd_simplification_process.md for the reasoning.
   prod:
     mode: production
     workspace:
-      host: https://REPLACE_WITH_PROD_WORKSPACE.cloud.databricks.com
+      host: https://adb-7405607192769716.16.azuredatabricks.net
+      # mode: production requires an explicit, fixed root_path (unlike dev,
+      # which auto-generates one per developer) so there's exactly one
+      # canonical deployment, not a new copy per person who runs deploy.
+      root_path: /Workspace/Users/106018876@student.swin.edu.au/.bundle/${bundle.name}/${bundle.target}
     variables:
-      catalog: prod_catalog
-      landing_volume_path: /Volumes/prod_catalog/landing/raw
-    run_as:
-      service_principal_name: REPLACE_WITH_PROD_SERVICE_PRINCIPAL
+      catalog: ygz_massive_stock_prod
+      landing_volume_path: /Volumes/ygz_massive_stock_prod/landing/raw_massive_data
