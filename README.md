@@ -36,7 +36,7 @@ functions in its own module, and - only where a real DAB job needs to call into 
 the only place `main()`-shaped code lives; everything else is importable functions.
 
 ```
-databricks.yml              # DAB bundle root config (targets: dev/staging/prod)
+databricks.yml              # DAB bundle root config (targets: dev/prod, same workspace)
 resources/
   jobs.yml                  # ingestion_daily_job, ingestion_reference_job (Landing+Bronze,
                              #   different schedules), dbt_job (Silver+Gold) - all serverless
@@ -74,11 +74,8 @@ dbt/
   tests/
     assert_dim_ticker_single_current_version.sql   # singular test: SCD2 invariant
 .github/workflows/
-  test.yml                     # pytest on every PR/push to main - active, no secrets needed
-.github/workflows-disabled/
-  deploy-dev.yml               # auto-deploy on push to main (disabled, see below)
-  deploy-test.yml              # deploy to staging on PR / manual dispatch (disabled)
-  deploy-prod.yml               # deploy to prod on release (disabled)
+  ci-dev.yml                   # PR: pytest, then (needs: test) deploy to dev
+  cd-prod.yml                   # push to main: pytest, then (needs: test) deploy to prod
 ```
 
 ## Local setup
@@ -137,7 +134,10 @@ databricks bundle run dbt_job -t dev
 ```
 
 `dev` target already points at a real workspace/catalog/warehouse (see `databricks.yml`).
-`staging`/`prod` are still placeholders (`REPLACE_WITH_*`) until those environments exist.
+`prod` points at the same real workspace (different UC catalog, `ygz_massive_stock_prod`) -
+no more `REPLACE_WITH_*` placeholders, but that catalog doesn't exist yet, so `-t prod` only
+works past `validate` once it's been created. No `staging` target - see
+`plan/records/08_cicd_simplification_process.md`.
 
 ## Databricks resources (dev)
 
@@ -146,7 +146,7 @@ Created under the `DBT` profile in `~/.databrickscfg` (Azure workspace
 
 - Catalog `ygz_massive_stock_dev`, with `landing` / `bronze` / `silver` / `gold` schemas
   (`dim_ticker_snapshot` also lives in `gold` - dbt snapshots don't get their own schema here)
-- Volume `ygz_massive_stock_dev.landing.raw` (Landing layer append target)
+- Volume `ygz_massive_stock_dev.landing.raw_massive_data` (Landing layer append target)
 - SQL warehouse `2x Small serverless Warehouse` (id `04147fab6edc9014`) - what `dbt_task`/`dbt debug` connect through
 - Secret scope `ygz-massive-stock`, holding `MASSIVE_API_KEY` - both jobs in `resources/jobs.yml`
   run on serverless compute, which has no cluster to attach `spark_env_vars`-style secret
@@ -156,17 +156,19 @@ Created under the `DBT` profile in `~/.databrickscfg` (Azure workspace
 
 ## CI/CD
 
-`.github/workflows/test.yml` runs `pytest tests/` on every PR and push to
-`main` - plain Python, no Databricks connection or secrets needed, so it's
-active today.
+Two workflows, both active:
 
-The *deploy* workflows are a separate thing and live in
-`.github/workflows-disabled/`, not `.github/workflows/` — GitHub Actions
-only scans the latter, so they're inert. They were failing on every push
-(no `DATABRICKS_HOST_*`/`TOKEN_*` secrets configured, and `staging`/`prod`
-targets are still placeholders), so they're parked until the project is far
-enough along to actually deploy. See `.github/workflows-disabled/README.md`
-for how to re-enable.
+- `.github/workflows/ci-dev.yml` (on every PR): `pytest tests/`, then - only if that
+  passes (`needs: test`) - `databricks bundle validate`/`deploy -t dev`.
+- `.github/workflows/cd-prod.yml` (on push to `main`, or manual dispatch): same
+  `pytest` gate, then `bundle validate`/`deploy -t prod`.
+
+Deliberately two environments, not three: `prod` is the same Databricks workspace as
+`dev`, just a different UC catalog (no separate workspace, no service principal - see
+`plan/records/08_cicd_simplification_process.md`). Neither workflow ever runs the
+ingestion/dbt jobs, just deploys their definitions (still `pause_status: PAUSED` -
+see Status/TODO). Requires the repo secrets `DATABRICKS_HOST`/`DATABRICKS_TOKEN` and
+the `ygz_massive_stock_prod` catalog, both already set up.
 
 ## Status / TODO
 
@@ -179,8 +181,6 @@ for how to re-enable.
       via dbt snapshot (see `plan/design/02_data_model_design.md`)
 - [x] Land all 5 sources daily (not just daily_bars) and make Bronze loads incremental
       via natural-key anti-join (see `ingestion/bronze/loader.py` module docstring)
-- [x] Add a PR-triggered `pytest` CI gate (`.github/workflows/test.yml`) - separate from
-      the deploy workflows below, needs no Databricks connection or secrets
 - [x] Wire `MASSIVE_API_KEY` into the real job via a Databricks secret scope
       (`ygz-massive-stock`), and move both jobs to serverless compute instead of filling
       in cluster node types - `resources/clusters.yml` is gone, no `job_clusters` left in
@@ -200,6 +200,10 @@ for how to re-enable.
       "sideways"), and the new `fct_volume_anomalies.is_volume_spike` (2x the trailing
       20-day average volume). Verified against real data, not just passing tests - see
       `plan/records/07_gold_business_rules_process.md`
-- [ ] Create staging/prod catalogs + workspaces and fill in their `REPLACE_WITH_*` placeholders
+- [x] CI/CD is live: `ci-dev.yml` (PR) and `cd-prod.yml` (push to main) each run
+      `pytest` and only deploy (`bundle deploy`, never `bundle run`) if that passes
+      (`needs: test`). `prod` is the same workspace as `dev`, just a different UC
+      catalog, no service principal, no `staging` tier - see
+      `plan/records/08_cicd_simplification_process.md`
 - Schedules stay `PAUSED` on purpose (cost) - flip in `resources/jobs.yml` whenever wanted
 - No real-time/Structured Streaming phase - dropped, not needed for this project
