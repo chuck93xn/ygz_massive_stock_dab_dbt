@@ -8,7 +8,7 @@ Two ways to actually write the bytes, since `/Volumes/...` paths are only a
 real local filesystem path when FUSE-mounted inside a Databricks
 cluster/job:
 - `write_landing_records` - plain `Path.open()`. Correct (and required) when
-  running as the `land_raw_json` DAB job task.
+  running as a real DAB job task (`land_daily_data`/`land_reference_data`).
 - `write_landing_records_via_files_api` - Databricks Files API upload.
   Correct for local dev/backfills, where `/Volumes/...` isn't mounted.
 

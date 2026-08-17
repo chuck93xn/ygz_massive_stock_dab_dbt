@@ -26,5 +26,6 @@ jobs:
 
       - name: Run ingestion + dbt jobs
         run: |
-          databricks bundle run ingestion_job -t staging
+          databricks bundle run ingestion_daily_job -t staging
+          databricks bundle run ingestion_reference_job -t staging
           databricks bundle run dbt_job -t staging

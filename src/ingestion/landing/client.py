@@ -20,6 +20,23 @@ DEFAULT_TIMEOUT_SECONDS = 30
 MAX_RETRIES = 5
 BACKOFF_BASE_SECONDS = 1.5
 
+# massive.com's free tier is rate limited to 5 requests/minute (from the
+# vendor's own docs - confirmed after 1s and 3s delays both still hit real
+# 429s in testing, see plan/records/06_job_serverless_process.md). 60/5=12s
+# is the strict minimum gap between calls; this adds a 1s margin. The
+# Aggregates (Custom Bars) endpoint separately caps a single request at
+# 50000 results, which only matters at minute-level granularity (~1.5
+# months of data) - get_daily_bars here uses day-level bars, where 50000
+# results is ~137 years, so that cap is a non-issue for this project.
+DEFAULT_REQUEST_DELAY_SECONDS = 13.0
+
+# How long a 429 actually takes to clear. massive.com doesn't send
+# Retry-After or x-ratelimit-reset in practice (confirmed empirically -
+# _rate_limit_headers() came back empty on every real 429 hit in testing),
+# so the only thing to do once rate limited is wait out the whole 60s
+# window rather than guess with a short backoff.
+RATE_LIMIT_WINDOW_SECONDS = 65
+
 
 class MassiveClientError(RuntimeError):
     pass
@@ -31,10 +48,12 @@ class MassiveClient:
         api_key: str,
         base_url: str = DEFAULT_BASE_URL,
         session: requests.Session | None = None,
+        request_delay_seconds: float = DEFAULT_REQUEST_DELAY_SECONDS,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.session = session or requests.Session()
+        self.request_delay_seconds = request_delay_seconds
 
     def get_daily_bars(
         self,
@@ -111,30 +130,35 @@ class MassiveClient:
         request_params["apiKey"] = self.api_key
 
         last_error: Exception | None = None
+        last_response: requests.Response | None = None
         for attempt in range(MAX_RETRIES):
             try:
                 response = self.session.get(url, params=request_params, timeout=DEFAULT_TIMEOUT_SECONDS)
                 if response.status_code == 429:
                     last_error = MassiveClientError(f"rate limited (429) on attempt {attempt + 1}")
+                    last_response = response
                     self._sleep_for_retry(attempt, response)
                     continue
                 response.raise_for_status()
-                return response.json()
+                result = response.json()
+                if self.request_delay_seconds:
+                    time.sleep(self.request_delay_seconds)
+                return result
             except requests.RequestException as exc:
                 last_error = exc
                 self._sleep_for_retry(attempt, None)
 
+        headers = _rate_limit_headers(last_response) if last_response is not None else {}
+        detail = f" (rate limit response headers: {headers})" if headers else ""
         raise MassiveClientError(
-            f"Failed GET {url} after {MAX_RETRIES} attempts: {last_error}"
+            f"Failed GET {url} after {MAX_RETRIES} attempts: {last_error}{detail}"
         ) from last_error
 
     @staticmethod
     def _sleep_for_retry(attempt: int, response: requests.Response | None) -> None:
-        # massive.com's 429s don't send a standard Retry-After header - they
-        # send x-ratelimit-reset (seconds until the rate-limit window
-        # clears), which can be up to ~60s. The plain exponential backoff
-        # below (a few seconds total) isn't long enough to wait that out.
         if response is not None:
+            # Defensive: honor these if massive.com ever does send them,
+            # but in practice it hasn't (see RATE_LIMIT_WINDOW_SECONDS).
             retry_after = response.headers.get("Retry-After")
             if retry_after is not None:
                 time.sleep(float(retry_after))
@@ -143,4 +167,18 @@ class MassiveClient:
             if reset_seconds is not None:
                 time.sleep(float(reset_seconds) + 1)
                 return
+            time.sleep(RATE_LIMIT_WINDOW_SECONDS)
+            return
+        # Not a 429 - a plain network/transient error, where a short
+        # backoff is the right call instead of waiting out a full minute.
         time.sleep(BACKOFF_BASE_SECONDS**attempt)
+
+
+def _rate_limit_headers(response: requests.Response) -> dict[str, str]:
+    """Whatever the vendor actually sent back about rate limiting - in
+    practice, nothing (real 429s in testing never had a Retry-After or
+    x-ratelimit-reset header). Kept as a diagnostic: dumps anything with
+    "limit"/"retry" in the header name, so if massive.com's free-tier
+    behavior ever changes, the next 429 surfaces it instead of silently
+    falling back to RATE_LIMIT_WINDOW_SECONDS."""
+    return {k: v for k, v in response.headers.items() if "limit" in k.lower() or "retry" in k.lower()}

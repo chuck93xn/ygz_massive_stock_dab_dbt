@@ -18,14 +18,16 @@ aggregation tables.
 | **Gold**    | Delta table, analysis-ready        | dbt Core            | Daily returns, moving averages, volatility, ticker dimension     |
 
 Watchlist is a fixed 10 tickers (see `plan/requirements/requirement_breakdown.md`, local-only) - all 5
-massive.com endpoints (daily bars, ticker overview, splits, dividends, news) are landed daily and
-Bronze-loaded for each. `land_raw_json` pulls all 5 sources every run (not just daily_bars), but
-"daily" doesn't mean "incremental" at the vendor API level for all of them: daily_bars/news use a
-bounded window, ticker_overview is always just today's snapshot, and splits/dividends have no date
-param at all - the vendor replays each ticker's full event history on every call. Bronze is what
-actually guarantees no duplicates: each `load_*_to_bronze` anti-joins against each table's natural
-key before appending, so re-running a load is safe regardless of whether Landing handed it genuinely
-new data or the same history again. See `ingestion/bronze/loader.py`'s module docstring and
+massive.com endpoints (daily bars, ticker overview, splits, dividends, news) are landed and
+Bronze-loaded for each, but not all on the same schedule: `land_daily_data` (daily_bars + news, the
+two sources that actually change day to day) runs daily, and `land_reference_data`
+(ticker_overview/splits/dividends, which the vendor returns as full history on every call regardless
+of how often you ask) runs weekly - splitting them cut a single run from 50 massive.com calls down to
+20 for the job that actually needs to run daily (see
+`plan/records/06_job_serverless_process.md`). Bronze is what actually guarantees no duplicates
+either way: each `load_*_to_bronze` anti-joins against each table's natural key before appending, so
+re-running a load is safe regardless of whether Landing handed it genuinely new data or the same
+history again. See `ingestion/bronze/loader.py`'s module docstring and
 `plan/records/05_bronze_landing_incremental_process.md` for the full story, including a first design
 (partition-based filtering) that looked right but wasn't. Silver and Gold models are both aligned
 with the real Bronze schema; `dim_ticker` is a proper SCD2 dimension via a dbt snapshot.
@@ -40,13 +42,14 @@ the only place `main()`-shaped code lives; everything else is importable functio
 ```
 databricks.yml              # DAB bundle root config (targets: dev/staging/prod)
 resources/
-  jobs.yml                  # ingestion_job (Landing+Bronze) and dbt_job (Silver+Gold) - both serverless
+  jobs.yml                  # ingestion_daily_job, ingestion_reference_job (Landing+Bronze,
+                             #   different schedules), dbt_job (Silver+Gold) - all serverless
 src/ingestion/
   settings.py                 # env-var driven runtime config, shared across layers
   landing/
-    client.py                   # MassiveClient: auth, retry/backoff, pagination
+    client.py                   # MassiveClient: auth, retry/backoff, pagination, inter-request delay
     writer.py                    # land_*() + write_landing_records*() - pure functions
-    job.py                         # land_raw_json() - the land_raw_json DAB job entry point
+    job.py                         # land_daily_data()/land_reference_data() - DAB job entry points
   bronze/
     loader.py                    # load_*_to_bronze() - pure functions
     job.py                         # load_bronze() - the load_bronze DAB job entry point
@@ -130,7 +133,8 @@ dbt build --profiles-dir .     # actually runs against the warehouse (includes t
 ```powershell
 databricks bundle validate -t dev
 databricks bundle deploy -t dev
-databricks bundle run ingestion_job -t dev
+databricks bundle run ingestion_daily_job -t dev
+databricks bundle run ingestion_reference_job -t dev
 databricks bundle run dbt_job -t dev
 ```
 
@@ -182,9 +186,15 @@ for how to re-enable.
 - [x] Wire `MASSIVE_API_KEY` into the real job via a Databricks secret scope
       (`ygz-massive-stock`), and move both jobs to serverless compute instead of filling
       in cluster node types - `resources/clusters.yml` is gone, no `job_clusters` left in
-      `resources/jobs.yml` (see `plan/records/06_job_serverless_process.md`). Config verified
-      end-to-end (`bundle validate`/`deploy`/`run` all confirmed working, including a real
-      `dbutils.secrets.get()` read); a full run that actually lands+loads data is still pending
-      because today's testing hit massive.com's real rate limit - rerun once that clears
+      `resources/jobs.yml`. Config verified end-to-end (`bundle validate`/`deploy`/`run` all
+      confirmed working, including a real `dbutils.secrets.get()` read)
+- [x] Both `ingestion_daily_job` and `ingestion_reference_job` confirmed running end-to-end
+      for real: `MassiveClient` now paces calls to massive.com's documented free-tier limit
+      (5 requests/minute - see `ingestion/landing/client.py`), and `land_raw_json` was split
+      into `land_daily_data` (daily_bars+news, needs a daily pull) and `land_reference_data`
+      (ticker_overview/splits/dividends, doesn't - runs weekly, offset from the daily job's
+      schedule so they can't overlap and jointly exceed the rate limit). Both real runs
+      succeeded and grew Bronze row counts for real (see
+      `plan/records/06_job_serverless_process.md`)
 - [ ] Create staging/prod catalogs + workspaces and fill in their `REPLACE_WITH_*` placeholders
 - [ ] Phase 2: Structured Streaming job + real-time aggregation tables

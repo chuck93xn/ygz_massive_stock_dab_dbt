@@ -21,7 +21,8 @@ dev = [
 
 # Entry points wired into resources/jobs.yml python_wheel_task definitions.
 [project.scripts]
-land_raw_json = "ingestion.landing.job:land_raw_json"
+land_daily_data = "ingestion.landing.job:land_daily_data"
+land_reference_data = "ingestion.landing.job:land_reference_data"
 load_bronze = "ingestion.bronze.job:load_bronze"
 
 [build-system]
