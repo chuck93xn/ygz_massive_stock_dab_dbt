@@ -15,7 +15,7 @@ aggregation tables.
 | **Landing** | Raw JSON in a UC Volume, append-only | Python (`src/ingestion/landing`) | Raw massive.com responses, partitioned by date, with request metadata |
 | **Bronze**  | Delta table, fixed schema, unclean | Python/PySpark (`src/ingestion/bronze`, DAB job) | JSON parsed into columns + `_ingested_at`/`_source_file` audit fields |
 | **Silver**  | Delta table, cleaned               | dbt Core            | UTC normalization, dedup, naming conventions, dbt tests          |
-| **Gold**    | Delta table, analysis-ready        | dbt Core            | Daily returns, moving averages, volatility, ticker dimension     |
+| **Gold**    | Delta table, analysis-ready        | dbt Core            | Daily returns, moving averages/trend, volume anomalies, ticker dimension |
 
 Watchlist is a fixed 10 tickers (see `plan/requirements/requirement_breakdown.md`, local-only) - all 5
 massive.com endpoints (daily bars, ticker overview, splits, dividends, news) are landed and
@@ -72,7 +72,7 @@ dbt/
   models/gold/                  # dim_ticker, dim_date, dim_publisher, dim_industry,
                                 #   fct_daily_bars, fct_ticker_daily_metrics, fct_splits,
                                 #   fct_dividends, fct_news_sentiment, fct_daily_returns,
-                                #   fct_moving_averages - aligned with Bronze
+                                #   fct_moving_averages, fct_volume_anomalies - aligned with Bronze
   snapshots/
     dim_ticker_snapshot.sql      # SCD2 source for dim_ticker (strategy=check)
   tests/
@@ -126,6 +126,8 @@ cd dbt
 dbt deps
 dbt compile --profiles-dir .   # renders/parses all models, no warehouse writes
 dbt build --profiles-dir .     # actually runs against the warehouse (includes the dim_ticker_snapshot SCD2 snapshot)
+dbt docs generate --profiles-dir .   # builds catalog.json/manifest.json for the docs site
+dbt docs serve                        # opens a local docs site with the DAG + column-level docs
 ```
 
 ### Validate / deploy the bundle
@@ -178,7 +180,7 @@ for how to re-enable.
       for the full watchlist
 - [x] Align Silver dbt models with the real Bronze table shapes
 - [x] Align Gold dbt models with the real Bronze table shapes, `dim_ticker` as SCD2
-      via dbt snapshot (see `plan/design/data_model_design.md`)
+      via dbt snapshot (see `plan/design/02_data_model_design.md`)
 - [x] Land all 5 sources daily (not just daily_bars) and make Bronze loads incremental
       via natural-key anti-join (see `ingestion/bronze/loader.py` module docstring)
 - [x] Add a PR-triggered `pytest` CI gate (`.github/workflows/test.yml`) - separate from
@@ -196,5 +198,11 @@ for how to re-enable.
       schedule so they can't overlap and jointly exceed the rate limit). Both real runs
       succeeded and grew Bronze row counts for real (see
       `plan/records/06_job_serverless_process.md`)
+- [x] Gold's three derived-metric business rules are decided and implemented, not
+      placeholders anymore: `fct_daily_returns.is_significant_move` (±3%),
+      `fct_moving_averages.trend` (5d/20d moving-average crossover, 1% band for
+      "sideways"), and the new `fct_volume_anomalies.is_volume_spike` (2x the trailing
+      20-day average volume). Verified against real data, not just passing tests - see
+      `plan/records/07_gold_business_rules_process.md`
 - [ ] Create staging/prod catalogs + workspaces and fill in their `REPLACE_WITH_*` placeholders
 - [ ] Phase 2: Structured Streaming job + real-time aggregation tables

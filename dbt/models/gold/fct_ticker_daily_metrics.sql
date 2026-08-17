@@ -1,8 +1,8 @@
--- Grain: ticker + snapshot_date. Currently a near-single-row-per-ticker
--- table in practice, since Landing only manually backfills ticker_overview
--- (not a daily job yet) - see plan/data_model_design.md. This will
--- naturally accumulate into a real daily series once that Landing source
--- becomes incremental; no changes needed here when that happens.
+-- Grain: ticker + snapshot_date - see plan/design/02_data_model_design.md.
+-- ticker_overview now lands weekly via land_reference_data() (not daily -
+-- see plan/records/06_job_serverless_process.md on why), so this
+-- accumulates one new row per ticker per real run, not truly daily; no
+-- changes needed here if that cadence ever changes.
 select
     ticker,
     snapshot_date,
