@@ -60,7 +60,9 @@ models:
               - trade_date
 
   - name: fct_daily_returns
-    description: Daily close-to-close returns per ticker.
+    description: >
+      Daily close-to-close returns per ticker, plus is_significant_move
+      (abs(daily_return) >= 3%).
     columns:
       - name: ticker
         tests:
@@ -76,7 +78,9 @@ models:
               - trade_date
 
   - name: fct_moving_averages
-    description: Rolling moving averages of close price per ticker (5/20/50-day windows).
+    description: >
+      Rolling moving averages of close price per ticker (5/20/50-day windows),
+      plus trend (uptrend/downtrend/sideways from the 5d/20d crossover).
     columns:
       - name: ticker
         tests:
@@ -84,6 +88,24 @@ models:
       - name: trade_date
         tests:
           - not_null
+
+  - name: fct_volume_anomalies
+    description: >
+      Daily volume vs. its trailing 20-day average (excluding the current day)
+      per ticker, plus is_volume_spike (volume >= 2x avg_volume_20d).
+    columns:
+      - name: ticker
+        tests:
+          - not_null
+      - name: trade_date
+        tests:
+          - not_null
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - ticker
+              - trade_date
 
   - name: fct_ticker_daily_metrics
     description: Fast-changing ticker metrics (market cap, shares outstanding), one row per ticker/snapshot_date.

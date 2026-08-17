@@ -54,7 +54,7 @@ _DAILY_BARS_SELECT = [
 ]
 
 # Unlike daily_bars, the ticker_overview record carries its own `ticker`
-# field. Only the columns plan/design/data_model_design.md's dim_ticker /
+# field. Only the columns plan/design/02_data_model_design.md's dim_ticker /
 # fct_ticker_daily_metrics design actually needs are selected here - the
 # response has more (address, branding, phone_number, description, ...)
 # that nothing downstream uses yet.
@@ -165,7 +165,7 @@ def load_daily_bars_to_bronze(spark: SparkSession, *, landing_path: str, bronze_
 def load_ticker_overview_to_bronze(spark: SparkSession, *, landing_path: str, bronze_table: str) -> DataFrame:
     """Bronze deliberately keeps one row per (ticker, calendar day landed) -
     not one row per ticker - so fct_ticker_daily_metrics can accumulate real
-    daily history (see plan/design/data_model_design.md). The API response
+    daily history (see plan/design/02_data_model_design.md). The API response
     has no date field of its own, so the idempotency key derives a day from
     _ingested_at on both sides of the anti-join; that derived column is
     never persisted (Silver's stg_ticker_overview.sql already derives the

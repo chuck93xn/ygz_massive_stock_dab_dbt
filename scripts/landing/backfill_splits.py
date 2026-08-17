@@ -4,7 +4,7 @@ watchlist ticker into the real Landing Volume.
 Usage (from .venv): python scripts/landing/backfill_splits.py
 
 No date range - get_splits() always pulls full history (see
-plan/design/massive_client_design.md on why splits/dividends aren't "incremental").
+plan/design/01_massive_client_design.md on why splits/dividends aren't "incremental").
 Safe to rerun; Silver will need to dedup on replay.
 """
 
