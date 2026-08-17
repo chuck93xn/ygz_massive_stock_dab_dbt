@@ -12,6 +12,7 @@ Databricks it's read via `dbutils.secrets.get()` instead - see
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 
 SECRET_SCOPE = "ygz-massive-stock"
@@ -31,8 +32,8 @@ class Settings:
     landing_volume_path: str
 
     @classmethod
-    def from_env(cls) -> Settings:
-        catalog = os.environ.get("DBT_CATALOG", "ygz_massive_stock_dev")
+    def from_env(cls, *, catalog_override: str | None = None) -> Settings:
+        catalog = catalog_override or os.environ.get("DBT_CATALOG", "ygz_massive_stock_dev")
         landing_schema = os.environ.get("LANDING_SCHEMA", "landing")
         return cls(
             massive_api_key=_require_api_key(),
@@ -48,6 +49,20 @@ class Settings:
                 "LANDING_VOLUME_PATH", f"/Volumes/{catalog}/{landing_schema}/raw_massive_data"
             ),
         )
+
+    @classmethod
+    def from_job_argv(cls) -> Settings:
+        """Reads catalog from argv[1] if the job passed one (see
+        resources/jobs.yml's python_wheel_task `parameters: ["${var.catalog}"]`),
+        otherwise falls back to from_env()'s DBT_CATALOG/default - so this
+        stays correct locally (no argv) and for any job that doesn't pass a
+        catalog parameter. python_wheel_task has no cluster-level env var
+        mechanism on serverless compute (same reason MASSIVE_API_KEY goes
+        through dbutils.secrets.get() instead of an env var), and unlike
+        dbt_task, it has no native `catalog:` field DAB understands - argv is
+        the only channel a job config can hand it a value through."""
+        catalog_override = sys.argv[1] if len(sys.argv) > 1 else None
+        return cls.from_env(catalog_override=catalog_override)
 
 
 def _require(name: str) -> str:

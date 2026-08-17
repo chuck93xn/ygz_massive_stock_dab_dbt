@@ -1,28 +1,16 @@
-name: CD (test) + deploy prod
+name: CD - deploy prod (manual confirmation)
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch: {}
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: pip install -e ".[dev]"
-      - run: pytest tests/ -v
-
   deploy-prod:
-    needs: test
     runs-on: ubuntu-latest
-    # Configure required reviewers on the "prod" environment in repo
-    # Settings > Environments if you want merges to main to pause for
-    # approval before this runs.
+    # Only trigger is workflow_dispatch - deploying prod is a deliberate
+    # human action, not something that follows automatically from a push.
+    # No `test` job here: by the time you're triggering this, the commit
+    # on main already passed CI (ci-dev.yml/cd-test.yml) - re-running
+    # pytest here adds no new signal.
     environment: prod
     env:
       DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}

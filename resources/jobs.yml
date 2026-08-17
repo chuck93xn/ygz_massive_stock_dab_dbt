@@ -1,74 +1,12 @@
 resources:
   jobs:
-    ingestion_daily_job:
-      name: "[${bundle.target}] stock_ingestion_daily"
-      description: >-
-        Phase 1, stage 1a: lands daily_bars + news for the watchlist - the
-        two sources that actually change day to day - then loads whatever's
-        new into Bronze. Split from the reference data (see
-        ingestion_reference_job) so the job that runs daily only makes 20
-        massive.com calls instead of 50.
-      tags:
-        project: ygz-massive-stock
-        layer: landing-bronze
-      tasks:
-        - task_key: land_daily_data
-          environment_key: ingestion_env
-          python_wheel_task:
-            package_name: ygz_massive_stock_pipeline
-            entry_point: land_daily_data
-        - task_key: load_bronze
-          depends_on:
-            - task_key: land_daily_data
-          environment_key: ingestion_env
-          python_wheel_task:
-            package_name: ygz_massive_stock_pipeline
-            entry_point: load_bronze
-      environments:
-        - environment_key: ingestion_env
-          spec:
-            environment_version: "2"
-            dependencies:
-              - ../dist/*.whl
-      schedule:
-        quartz_cron_expression: "0 0 6 * * ?"
-        timezone_id: "UTC"
-        pause_status: PAUSED  # unpause once the vendor client is wired up
-
-    ingestion_reference_job:
-      name: "[${bundle.target}] stock_ingestion_reference"
-      description: >-
-        Phase 1, stage 1b: lands ticker_overview/splits/dividends for the
-        watchlist - slow-changing reference data that doesn't need a daily
-        pull, since the vendor returns full history on every call regardless
-        - then loads whatever's new into Bronze. Runs weekly, not daily.
-      tags:
-        project: ygz-massive-stock
-        layer: landing-bronze
-      tasks:
-        - task_key: land_reference_data
-          environment_key: ingestion_env
-          python_wheel_task:
-            package_name: ygz_massive_stock_pipeline
-            entry_point: land_reference_data
-        - task_key: load_bronze
-          depends_on:
-            - task_key: land_reference_data
-          environment_key: ingestion_env
-          python_wheel_task:
-            package_name: ygz_massive_stock_pipeline
-            entry_point: load_bronze
-      environments:
-        - environment_key: ingestion_env
-          spec:
-            environment_version: "2"
-            dependencies:
-              - ../dist/*.whl
-      schedule:
-        quartz_cron_expression: "0 0 18 ? * SUN"  # offset from ingestion_daily_job's 06:00 daily
-        timezone_id: "UTC"                        # run - same API key, same rate limit
-        pause_status: PAUSED
-
+    # ingestion_daily_job/ingestion_reference_job live under
+    # targets.dev.resources.jobs in databricks.yml, not here - see the
+    # comment there. promote_from_dev_job lives under
+    # targets.test.resources.jobs/targets.prod.resources.jobs, same reason.
+    # dbt_job is the only job safe/intended to run against every target
+    # (pure SQL transforms, no external side effects), so it's the only one
+    # left in this shared file.
     dbt_job:
       name: "[${bundle.target}] stock_dbt_silver_gold"
       description: >-

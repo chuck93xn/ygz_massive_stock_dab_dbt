@@ -37,26 +37,228 @@ variables:
     default: "04147fab6edc9014"  # "2x Small serverless Warehouse" in the DBT workspace
 
 targets:
+  # dev is the only target that calls massive.com for real - Landing/Bronze
+  # ingestion jobs are defined here, not in the shared resources/jobs.yml,
+  # so they structurally don't exist under -t test/-t prod at all (not just
+  # paused - `pause_status: PAUSED` only blocks the cron trigger, not a
+  # manual `bundle run`/"Run now"). DAB has no "exclude this resource from
+  # a target" mechanism (confirmed against docs.databricks.com/.../overrides
+  # and databricks/cli issues #2872/#2878, the latter still an open feature
+  # request) - defining a resource only inside one target's own
+  # `resources:` block is the supported way to scope it to that target. See
+  # plan/records/09_bronze_promotion_process.md.
   dev:
     mode: development
     default: true
     workspace:
       host: https://adb-7405607192769716.16.azuredatabricks.net
+    resources:
+      jobs:
+        ingestion_daily_job:
+          name: "[${bundle.target}] stock_ingestion_daily"
+          description: >-
+            Phase 1, stage 1a: lands daily_bars + news for the watchlist -
+            the two sources that actually change day to day - then loads
+            whatever's new into Bronze. Split from the reference data (see
+            ingestion_reference_job) so the job that runs daily only makes
+            20 massive.com calls instead of 50. Only defined under dev -
+            see the comment on targets.dev above.
+          tags:
+            project: ygz-massive-stock
+            layer: landing-bronze
+          tasks:
+            - task_key: land_daily_data
+              environment_key: ingestion_env
+              python_wheel_task:
+                package_name: ygz_massive_stock_pipeline
+                entry_point: land_daily_data
+                parameters:
+                  - "${var.catalog}"
+            - task_key: load_bronze
+              depends_on:
+                - task_key: land_daily_data
+              environment_key: ingestion_env
+              python_wheel_task:
+                package_name: ygz_massive_stock_pipeline
+                entry_point: load_bronze
+                parameters:
+                  - "${var.catalog}"
+          environments:
+            - environment_key: ingestion_env
+              spec:
+                environment_version: "2"
+                dependencies:
+                  - ../dist/*.whl
+          schedule:
+            quartz_cron_expression: "0 0 6 * * ?"
+            timezone_id: "UTC"
+            pause_status: UNPAUSED
 
-  # prod is deliberately the *same* workspace as dev, just a different UC
-  # catalog - no separate workspace, no staging tier, no service principal.
-  # This project is a solo/personal pipeline; the point of having a prod
-  # target at all is to exercise a real CI/CD deploy flow, not to stand up
-  # enterprise-style environment isolation. See
-  # plan/records/08_cicd_simplification_process.md for the reasoning.
+        ingestion_reference_job:
+          name: "[${bundle.target}] stock_ingestion_reference"
+          description: >-
+            Phase 1, stage 1b: lands ticker_overview/splits/dividends for
+            the watchlist - slow-changing reference data that doesn't need
+            a daily pull, since the vendor returns full history on every
+            call regardless - then loads whatever's new into Bronze. Runs
+            weekly, not daily. Only defined under dev - see the comment on
+            targets.dev above.
+          tags:
+            project: ygz-massive-stock
+            layer: landing-bronze
+          tasks:
+            - task_key: land_reference_data
+              environment_key: ingestion_env
+              python_wheel_task:
+                package_name: ygz_massive_stock_pipeline
+                entry_point: land_reference_data
+                parameters:
+                  - "${var.catalog}"
+            - task_key: load_bronze
+              depends_on:
+                - task_key: land_reference_data
+              environment_key: ingestion_env
+              python_wheel_task:
+                package_name: ygz_massive_stock_pipeline
+                entry_point: load_bronze
+                parameters:
+                  - "${var.catalog}"
+          environments:
+            - environment_key: ingestion_env
+              spec:
+                environment_version: "2"
+                dependencies:
+                  - ../dist/*.whl
+          schedule:
+            quartz_cron_expression: "0 0 18 ? * SUN"  # offset from ingestion_daily_job's 06:00 daily
+            timezone_id: "UTC"                        # run - same API key, same rate limit
+            pause_status: UNPAUSED
+
+        # dbt_job's shared definition lives in resources/jobs.yml with
+        # pause_status: PAUSED as its default (matches prod, which doesn't
+        # override it). dev overrides just the schedule here so it runs
+        # daily, 30 min after ingestion_daily_job.
+        dbt_job:
+          schedule:
+            quartz_cron_expression: "0 30 6 * * ?"
+            timezone_id: "UTC"
+            pause_status: UNPAUSED
+
+  # test and prod are the same workspace as dev, just different UC catalogs
+  # (no separate workspace, no service principal - see
+  # plan/records/08_cicd_simplification_process.md). Neither calls
+  # massive.com itself: both get real data via promote_from_dev_job, which
+  # copies dev's Landing Volume in and runs load_bronze against their own
+  # catalog - see plan/records/09_bronze_promotion_process.md. test exists
+  # so the promotion + Silver/Gold pipeline can be validated against the
+  # same logic prod uses, before it touches prod for real.
+  test:
+    mode: production
+    workspace:
+      host: https://adb-7405607192769716.16.azuredatabricks.net
+      root_path: /Workspace/Users/106018876@student.swin.edu.au/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: ygz_massive_stock_test
+      landing_volume_path: /Volumes/ygz_massive_stock_test/landing/raw_massive_data
+    resources:
+      jobs:
+        promote_from_dev_job:
+          name: "[${bundle.target}] stock_promote_from_dev"
+          description: >-
+            Copies dev's Landing Volume into this target's, then runs
+            load_bronze against this target's catalog - only defined under
+            targets.test/targets.prod, not the shared resources/jobs.yml,
+            since dev has nothing to promote from into itself. See
+            plan/records/09_bronze_promotion_process.md.
+          tags:
+            project: ygz-massive-stock
+            layer: promotion
+          tasks:
+            - task_key: copy_landing_from_dev
+              environment_key: ingestion_env
+              python_wheel_task:
+                package_name: ygz_massive_stock_pipeline
+                entry_point: copy_landing_from_dev
+                parameters:
+                  - "${var.catalog}"
+            - task_key: load_bronze_promoted
+              depends_on:
+                - task_key: copy_landing_from_dev
+              environment_key: ingestion_env
+              python_wheel_task:
+                package_name: ygz_massive_stock_pipeline
+                entry_point: load_bronze
+                parameters:
+                  - "${var.catalog}"
+          environments:
+            - environment_key: ingestion_env
+              spec:
+                environment_version: "2"
+                dependencies:
+                  - ../dist/*.whl
+          # Weekly, not daily: test doesn't need to be as fresh as dev,
+          # and running the same promotion+Bronze-load pipeline every day
+          # would multiply cost for no new real-world information (dev's
+          # own Landing already only grows daily/weekly). Monday 08:00 UTC
+          # - after dev's Sunday 18:00 reference job and Monday 06:00
+          # daily job have both landed that week's data.
+          schedule:
+            quartz_cron_expression: "0 0 8 ? * MON"
+            timezone_id: "UTC"
+            pause_status: UNPAUSED
+
+        # dbt_job's shared definition lives in resources/jobs.yml with
+        # pause_status: PAUSED as its default. test overrides the schedule
+        # to run weekly, 30 min after promote_from_dev_job.
+        dbt_job:
+          schedule:
+            quartz_cron_expression: "0 30 8 ? * MON"
+            timezone_id: "UTC"
+            pause_status: UNPAUSED
+
   prod:
     mode: production
     workspace:
       host: https://adb-7405607192769716.16.azuredatabricks.net
-      # mode: production requires an explicit, fixed root_path (unlike dev,
-      # which auto-generates one per developer) so there's exactly one
-      # canonical deployment, not a new copy per person who runs deploy.
       root_path: /Workspace/Users/106018876@student.swin.edu.au/.bundle/${bundle.name}/${bundle.target}
     variables:
       catalog: ygz_massive_stock_prod
       landing_volume_path: /Volumes/ygz_massive_stock_prod/landing/raw_massive_data
+    resources:
+      jobs:
+        promote_from_dev_job:
+          name: "[${bundle.target}] stock_promote_from_dev"
+          description: >-
+            Copies dev's Landing Volume into this target's, then runs
+            load_bronze against this target's catalog - only defined under
+            targets.test/targets.prod, not the shared resources/jobs.yml,
+            since dev has nothing to promote from into itself. See
+            plan/records/09_bronze_promotion_process.md.
+          tags:
+            project: ygz-massive-stock
+            layer: promotion
+          tasks:
+            - task_key: copy_landing_from_dev
+              environment_key: ingestion_env
+              python_wheel_task:
+                package_name: ygz_massive_stock_pipeline
+                entry_point: copy_landing_from_dev
+                parameters:
+                  - "${var.catalog}"
+            - task_key: load_bronze_promoted
+              depends_on:
+                - task_key: copy_landing_from_dev
+              environment_key: ingestion_env
+              python_wheel_task:
+                package_name: ygz_massive_stock_pipeline
+                entry_point: load_bronze
+                parameters:
+                  - "${var.catalog}"
+          environments:
+            - environment_key: ingestion_env
+              spec:
+                environment_version: "2"
+                dependencies:
+                  - ../dist/*.whl
+          # No schedule: promotion is a deliberate manual decision, not
+          # something that should run on a timer.
