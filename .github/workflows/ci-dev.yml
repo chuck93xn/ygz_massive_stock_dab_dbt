@@ -23,6 +23,10 @@ jobs:
       DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install build
       - uses: databricks/setup-cli@main
       - name: Validate bundle
         run: databricks bundle validate -t dev
