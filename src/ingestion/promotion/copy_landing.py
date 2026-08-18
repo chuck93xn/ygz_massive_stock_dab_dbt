@@ -1,7 +1,7 @@
 """Promotion layer: copy dev's Landing Volume into prod's, so prod can run
 load_bronze against real, already-fetched data without independently
 calling massive.com for the same watchlist - see
-plan/records/09_bronze_promotion_process.md for why this exists and why the
+plan/records/08_bronze_promotion_process.md for why this exists and why the
 copy is file-by-file instead of a single directory-level `dbutils.fs.cp
 (..., recurse=True)`.
 """
