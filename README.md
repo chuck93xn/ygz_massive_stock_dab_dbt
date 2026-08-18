@@ -13,20 +13,21 @@ massive.com REST API → Landing (raw JSON) → Bronze (structured Delta) → Si
 | **Silver**  | Delta table, cleaned               | dbt Core            | UTC normalization, dedup, naming conventions, dbt tests          |
 | **Gold**    | Delta table, analysis-ready        | dbt Core            | Daily returns, moving averages/trend, volume anomalies, ticker dimension |
 
-Watchlist is a fixed 10 tickers (see `plan/requirements/requirement_breakdown.md`, local-only) - all 5
+Watchlist is a fixed 10 tickers (see [`docs/architecture.md`](docs/architecture.md)) - all 5
 massive.com endpoints (daily bars, ticker overview, splits, dividends, news) are landed and
 Bronze-loaded for each, but not all on the same schedule: `land_daily_data` (daily_bars + news, the
 two sources that actually change day to day) runs daily, and `land_reference_data`
 (ticker_overview/splits/dividends, which the vendor returns as full history on every call regardless
 of how often you ask) runs weekly - splitting them cut a single run from 50 massive.com calls down to
 20 for the job that actually needs to run daily (see
-`plan/records/05_job_serverless_process.md`). Bronze is what actually guarantees no duplicates
-either way: each `load_*_to_bronze` anti-joins against each table's natural key before appending, so
-re-running a load is safe regardless of whether Landing handed it genuinely new data or the same
-history again. See `ingestion/bronze/loader.py`'s module docstring and
-`plan/records/04_bronze_landing_incremental_process.md` for the full story, including a first design
-(partition-based filtering) that looked right but wasn't. Silver and Gold models are both aligned
-with the real Bronze schema; `dim_ticker` is a proper SCD2 dimension via a dbt snapshot.
+[`docs/engineering-log.md`](docs/engineering-log.md#rate-limit-investigation)). Bronze is what actually
+guarantees no duplicates either way: each `load_*_to_bronze` anti-joins against each table's natural
+key before appending, so re-running a load is safe regardless of whether Landing handed it genuinely
+new data or the same history again. See `ingestion/bronze/loader.py`'s module docstring and
+[`docs/engineering-log.md`](docs/engineering-log.md#incremental-loading-the-first-design-failed-visibly)
+for the full story, including a first design (partition-based filtering) that looked right but wasn't.
+Silver and Gold models are both aligned with the real Bronze schema; `dim_ticker` is a proper SCD2
+dimension via a dbt snapshot.
 
 `dev` is the only target that calls massive.com for real - `ingestion_daily_job`/
 `ingestion_reference_job` are only defined under `targets.dev` in `databricks.yml`, not the shared
@@ -35,7 +36,8 @@ with the real Bronze schema; `dim_ticker` is a proper SCD2 dimension via a dbt s
 block is the supported way to scope it). `test` and `prod` both get real data via
 `promote_from_dev_job` instead: it copies dev's Landing Volume into that target's, then runs
 `load_bronze` against that target's catalog - same promotion logic for both, on demand, not on a
-schedule. See `plan/records/08_bronze_promotion_process.md`.
+schedule. See
+[`docs/engineering-log.md`](docs/engineering-log.md#three-environment-isolation-is-structural-not-a-convention).
 
 ## Repo layout
 
@@ -45,6 +47,9 @@ functions in its own module, and - only where a real DAB job needs to call into 
 the only place `main()`-shaped code lives; everything else is importable functions.
 
 ```
+docs/
+  architecture.md              # System design: medallion layers, MassiveClient, data model, Gold rules
+  engineering-log.md            # Key decisions, tradeoffs, and real bugs found along the way
 databricks.yml              # DAB bundle root config (targets: dev/test/prod, same workspace).
                              #   targets.dev.resources.jobs: ingestion_daily_job,
                              #   ingestion_reference_job (Landing+Bronze, dev-only - see Architecture).
@@ -155,7 +160,7 @@ databricks bundle run dbt_job -t dev
 `test`/`prod` point at the same real workspace, different UC catalogs (`ygz_massive_stock_test`/
 `ygz_massive_stock_prod`) - `-t test`/`-t prod` only work past `validate` once those catalogs
 exist. No separate workspaces, no service principal - see
-`plan/records/07_cicd_simplification_process.md`.
+[`docs/engineering-log.md`](docs/engineering-log.md#three-environment-isolation-is-structural-not-a-convention).
 
 ## Databricks resources
 
@@ -190,7 +195,8 @@ Actions tab, selects that workflow, and clicks "Run workflow". That sidesteps de
 Environment "required reviewers" protection rules (confirmed available and configured on this
 repo) for the same manual-gate effect. (Earlier versions of this went 2 files → 4 single-trigger
 files → back to 2, then split again to the current 3 - see
-`plan/records/07_cicd_simplification_process.md` for the full history, including why `deploy-test`
+[`docs/engineering-log.md`](docs/engineering-log.md#cicd-four-iterations-each-driven-by-a-real-failure)
+for the full history, including why `deploy-test`
 and `deploy-prod` ended up split into separate files again: with both jobs in one `cd-test-prod.yml`
 file, `deploy-prod` showed up as a "skipped" job inside every push-triggered run, which looked
 clickable via "Re-run jobs" but silently did nothing - re-running a run keeps its original
@@ -200,13 +206,15 @@ keep `cd-test`'s workflow above `cd-prod`'s in the Actions sidebar, which sorts 
 alphabetically, not pipeline order.)
 
 Three environments, same Databricks workspace, different UC catalogs (no separate workspaces,
-no service principal - see `plan/records/07_cicd_simplification_process.md`). None of the
-workflows ever run the jobs themselves, just deploy their definitions - actual execution is
+no service principal - see
+[`docs/engineering-log.md`](docs/engineering-log.md#three-environment-isolation-is-structural-not-a-convention)).
+None of the workflows ever run the jobs themselves, just deploy their definitions - actual execution is
 either the job's own schedule (dev's three jobs and test's `promote_from_dev_job`/`dbt_job` are
 unpaused and run on cron - see Status/TODO) or a manual `bundle run` (prod stays fully manual,
 deliberately - no schedule at all). Requires the repo secrets `DATABRICKS_HOST`/
 `DATABRICKS_TOKEN` and the `ygz_massive_stock_test`/`ygz_massive_stock_prod` catalogs. See
-`plan/records/07_cicd_simplification_process.md`/`09_job_scheduling_cost_process.md`.
+[`docs/engineering-log.md`](docs/engineering-log.md#cicd-four-iterations-each-driven-by-a-real-failure)
+and [`docs/engineering-log.md`](docs/engineering-log.md#cost-aware-scheduling).
 
 ## Status / TODO
 
@@ -216,7 +224,7 @@ deliberately - no schedule at all). Requires the repo secrets `DATABRICKS_HOST`/
       for the full watchlist
 - [x] Align Silver dbt models with the real Bronze table shapes
 - [x] Align Gold dbt models with the real Bronze table shapes, `dim_ticker` as SCD2
-      via dbt snapshot (see `plan/design/02_data_model_design.md`)
+      via dbt snapshot (see [`docs/architecture.md`](docs/architecture.md#data-model))
 - [x] Land all 5 sources daily (not just daily_bars) and make Bronze loads incremental
       via natural-key anti-join (see `ingestion/bronze/loader.py` module docstring)
 - [x] Wire `MASSIVE_API_KEY` into the real job via a Databricks secret scope
@@ -231,16 +239,17 @@ deliberately - no schedule at all). Requires the repo secrets `DATABRICKS_HOST`/
       (ticker_overview/splits/dividends, doesn't - runs weekly, offset from the daily job's
       schedule so they can't overlap and jointly exceed the rate limit). Both real runs
       succeeded and grew Bronze row counts for real (see
-      `plan/records/05_job_serverless_process.md`)
+      [`docs/engineering-log.md`](docs/engineering-log.md#rate-limit-investigation))
 - [x] Gold's three derived-metric business rules are decided and implemented, not
       placeholders anymore: `fct_daily_returns.is_significant_move` (±3%),
       `fct_moving_averages.trend` (5d/20d moving-average crossover, 1% band for
       "sideways"), and the new `fct_volume_anomalies.is_volume_spike` (2x the trailing
       20-day average volume). Verified against real data, not just passing tests - see
-      `plan/records/06_gold_business_rules_process.md`
-- [x] CI/CD is live, two workflows gated by `pytest`: push validates dev, PR deploys dev,
-      merge to main deploys test, `workflow_dispatch` (manual) deploys prod - see the CI/CD
-      section above and `plan/records/07_cicd_simplification_process.md`
+      [`docs/architecture.md`](docs/architecture.md#gold-business-rules)
+- [x] CI/CD is live, three workflows gated by `pytest`: push validates dev, PR deploys dev,
+      merge to main deploys test (auto), `workflow_dispatch` (manual) deploys prod - see the CI/CD
+      section above and
+      [`docs/engineering-log.md`](docs/engineering-log.md#cicd-four-iterations-each-driven-by-a-real-failure)
 - [x] `dev` is the only target that calls massive.com; `test`/`prod` get real data via
       `promote_from_dev_job` (copies dev's Landing Volume in, then runs `load_bronze` against
       that target's catalog). `ingestion_daily_job`/`ingestion_reference_job` are only defined
@@ -249,11 +258,11 @@ deliberately - no schedule at all). Requires the repo secrets `DATABRICKS_HOST`/
       isn't a real guardrail against a job that's still deployed there. Also fixed a latent bug
       found along the way: `python_wheel_task`s never actually passed `${var.catalog}` through,
       so every real job run silently defaulted to the dev catalog regardless of target - see
-      `plan/records/08_bronze_promotion_process.md`
+      [`docs/engineering-log.md`](docs/engineering-log.md#three-environment-isolation-is-structural-not-a-convention)
 - [x] Schedules are unpaused, tiered by how much each environment's freshness is worth: `dev`'s
       `ingestion_daily_job`/`ingestion_reference_job`/`dbt_job` run daily/weekly/daily for real
       (rough cost estimate ~$40-50/year on Azure serverless job compute pricing, ~$0.70-0.95/DBU-hour
-      - see `plan/records/09_job_scheduling_cost_process.md`); `test`'s `promote_from_dev_job`/
+      - see [`docs/engineering-log.md`](docs/engineering-log.md#cost-aware-scheduling)); `test`'s `promote_from_dev_job`/
       `dbt_job` run weekly (Monday, offset 30 min apart); `prod` stays fully manual, no schedule -
       deliberate, matching `cd-prod.yml`'s manual-confirmation deploy gate
 - No real-time/Structured Streaming phase - dropped, not needed for this project
