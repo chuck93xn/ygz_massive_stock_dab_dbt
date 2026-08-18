@@ -92,7 +92,8 @@ dbt/
     assert_dim_ticker_single_current_version.sql   # singular test: SCD2 invariant
 .github/workflows/
   ci-dev.yml                   # push (any branch but main): validate dev only; pull_request: deploy dev
-  cd-test-prod.yml               # push to main: deploy test; workflow_dispatch: deploy prod (manual)
+  cd-test.yml                  # push to main: deploy test (auto)
+  cd-prod.yml                  # workflow_dispatch: deploy prod (manual only)
 ```
 
 ## Local setup
@@ -173,23 +174,30 @@ Created under the `DBT` profile in `~/.databrickscfg` (Azure workspace
 
 ## CI/CD
 
-Two workflows, each handling two trigger→action pairs via job-level `if: github.event_name`,
-all gated by `pytest tests/` first:
+Three workflows, each with exactly one trigger (no job-level `if: github.event_name` branching
+needed for CD anymore), all gated by `pytest tests/` first:
 
 | Workflow | Trigger | Action |
 | --- | --- | --- |
 | `ci-dev.yml` | push (any branch but `main`) | `bundle validate -t dev` (no deploy) |
 | `ci-dev.yml` | pull request | `bundle validate`/`deploy -t dev` |
-| `cd-test-prod.yml` | push to `main` | `bundle validate`/`deploy -t test` |
-| `cd-test-prod.yml` | manual (`workflow_dispatch`) | `bundle validate`/`deploy -t prod` |
+| `cd-test.yml` | push to `main` | `bundle validate`/`deploy -t test` |
+| `cd-prod.yml` | manual (`workflow_dispatch`) only | `bundle validate`/`deploy -t prod` |
 
 Deploying to prod is a deliberate action, not something that follows automatically from a push -
-the `deploy-prod` job only runs on `workflow_dispatch`, so it only fires when someone goes to the
-Actions tab and clicks "Run workflow". That sidesteps depending on GitHub Environment "required
-reviewers" protection rules (not confirmed available on this repo's plan) for the same manual-gate
-effect. (An earlier version split these into four single-trigger files - reverted after the
-GitHub Actions sidebar's alphabetical-by-name ordering, not the trigger design, turned out to be
-the real source of confusion - see `plan/records/07_cicd_simplification_process.md`.)
+`cd-prod.yml`'s only trigger is `workflow_dispatch`, so it only fires when someone goes to the
+Actions tab, selects that workflow, and clicks "Run workflow". That sidesteps depending on GitHub
+Environment "required reviewers" protection rules (confirmed available and configured on this
+repo) for the same manual-gate effect. (Earlier versions of this went 2 files → 4 single-trigger
+files → back to 2, then split again to the current 3 - see
+`plan/records/07_cicd_simplification_process.md` for the full history, including why `deploy-test`
+and `deploy-prod` ended up split into separate files again: with both jobs in one `cd-test-prod.yml`
+file, `deploy-prod` showed up as a "skipped" job inside every push-triggered run, which looked
+clickable via "Re-run jobs" but silently did nothing - re-running a run keeps its original
+`github.event_name`, so the `if` guarding `deploy-prod` stayed false. Splitting it into a
+`workflow_dispatch`-only file removes that trap structurally; the `CD 1 -`/`CD 2 -` name prefixes
+keep `cd-test`'s workflow above `cd-prod`'s in the Actions sidebar, which sorts by `name:`
+alphabetically, not pipeline order.)
 
 Three environments, same Databricks workspace, different UC catalogs (no separate workspaces,
 no service principal - see `plan/records/07_cicd_simplification_process.md`). None of the
@@ -247,5 +255,5 @@ deliberately - no schedule at all). Requires the repo secrets `DATABRICKS_HOST`/
       (rough cost estimate ~$40-50/year on Azure serverless job compute pricing, ~$0.70-0.95/DBU-hour
       - see `plan/records/09_job_scheduling_cost_process.md`); `test`'s `promote_from_dev_job`/
       `dbt_job` run weekly (Monday, offset 30 min apart); `prod` stays fully manual, no schedule -
-      deliberate, matching `cd-test-prod.yml`'s manual-confirmation deploy gate
+      deliberate, matching `cd-prod.yml`'s manual-confirmation deploy gate
 - No real-time/Structured Streaming phase - dropped, not needed for this project
