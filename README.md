@@ -1,4 +1,4 @@
-# ygz_massive_stock_dab_dbt
+# Massive Stock — End-to-End Data Engineering Platform
 
 Stock market data pipeline built with **Databricks Asset Bundles (DAB)** and **dbt Core**.
 
