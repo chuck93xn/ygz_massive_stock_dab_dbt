@@ -1,6 +1,8 @@
 # Massive Stock — End-to-End Data Engineering Platform
 
 Stock market data pipeline built with **Databricks Asset Bundles (DAB)** and **dbt Core**.
+![Uploading image.png…]()
+
 
 ## Architecture
 
