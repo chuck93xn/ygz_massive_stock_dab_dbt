@@ -15,6 +15,7 @@ those are what actually hold up under interview follow-up questions.
 - [Three production bugs](#three-production-bugs)
 - [Rate-limit investigation](#rate-limit-investigation)
 - [Cost-aware scheduling](#cost-aware-scheduling)
+- [Pausing and resuming](#pausing-and-resuming)
 
 ## Three-environment isolation is structural, not a convention
 
@@ -74,6 +75,42 @@ actually passed `${var.catalog}` through to the Python code (only
 silently defaulting to the dev catalog regardless of target. Fixed by adding
 a `parameters: ["${var.catalog}"]` to each task and reading it from
 `sys.argv` in `Settings.from_job_argv()`.
+
+### `dbt_job` is the one deliberate exception, and it can't be fully closed
+
+Unlike `ingestion_daily_job`/`ingestion_reference_job`/`promote_from_dev_job`,
+`dbt_job` is intentionally the one job left in the shared
+`resources/jobs.yml` — pure SQL transforms, no external side effects, safe to
+define once for all three targets (see the comment there). `dev`/`test` each
+override its `schedule:` to their own cadence; `prod` doesn't override it at
+all, so it inherits the shared default (`pause_status: PAUSED`) — meaning
+prod's "this never auto-runs" guarantee depends on that shared default
+staying `PAUSED`, not on a structural absence of a schedule the way
+`promote_from_dev_job` has. That's exactly the kind of "convention, not
+structure" gap this section's title argues against.
+
+Tried closing it: overriding `schedule: ~` under `targets.prod.resources.jobs.dbt_job`,
+then a full redefinition of the job under the same key with no `schedule:`
+field at all. Neither worked — `bundle validate -t prod -o json` kept
+resolving the full inherited schedule dict either way. DAB's target-level
+merge only replaces fields the override actually sets; it has no mechanism to
+delete a field the shared base defines, no matter how much of the rest of the
+job gets redefined in the override. The only way to give prod's `dbt_job` a
+genuinely schedule-less definition would be pulling it out of the shared file
+and writing a third full copy per target — reversing the DRY decision this
+job was specifically kept around to preserve, for one job whose failure mode
+(prod's dbt build running once on a schedule instead of never) is low-stakes
+compared to the ingestion jobs it's structurally protecting `test`/`prod`
+from. Decided to leave it as a documented, known gap rather than duplicate
+the job definition.
+
+The two jobs that *are* structurally manual-only — `ingestion_backfill_job`
+in dev, and `promote_from_dev_job` in **prod specifically** (test's
+`promote_from_dev_job` has its own real, currently-paused weekly schedule,
+unlike prod's) — have `(manual)` appended to their `name:` so they're
+visually distinguishable from "has a schedule, currently paused" jobs in the
+Databricks UI job list. Prod's `dbt_job` deliberately does *not* get that
+suffix, since it isn't actually true for it.
 
 ## CI/CD: four iterations, each driven by a real failure
 
@@ -289,3 +326,53 @@ Rather than assume, this was tested directly with `bundle validate -t dev -o
 json`: overriding only `schedule:` in the target block left `tasks` intact
 and only replaced the schedule fields, confirming field-level merge and
 avoiding a full duplicate `dbt_job` definition per target.
+
+## Pausing and resuming
+
+The schedules above ran for a while, then got paused again (`dev`'s 3 jobs
+and `test`'s 2, back to `pause_status: PAUSED`) once the recurring cost
+became real instead of theoretical, with a plan to resume roughly a month
+later. Three of the five data sources behave completely differently under a
+month-long gap, which drove the resume design:
+
+- **`daily_bars`** — `land_daily_data()` only ever looks at a trailing
+  5-day window (`ingestion/landing/job.py`), so a month-long pause leaves a
+  permanent hole unless something re-lands the missing range.
+- **`news`** — `get_news(days_back, limit)`'s `limit` is a hard cap on the
+  *total* returned, not a page size, so widening `days_back` after a gap
+  doesn't recover anything: it still returns the same "most recent 5"
+  articles, just risks them being staler if the default 7-day window would
+  otherwise have found fewer. Nothing to backfill here — resuming with the
+  normal defaults is already correct.
+- **`ticker_overview`/`splits`/`dividends`** — the vendor always returns
+  full current state/history regardless of how long it's been since the
+  last call, so these have no gap to fill either.
+
+Only `daily_bars` needed a real fix: `ingestion_backfill_job`, a
+manual-trigger-only DAB job (`land_daily_bars_backfill()` → `load_bronze`,
+deliberately no `schedule:` block at all, not just `PAUSED` — same reasoning
+as `promote_from_dev_job`) that re-lands ~365 days per ticker. Bronze's
+natural-key anti-join makes re-landing an overlapping range safe to run
+without any special-casing.
+
+Resume checklist:
+
+1. Flip the 5 `pause_status: PAUSED` schedules back to `UNPAUSED` in
+   `databricks.yml`, `bundle deploy -t dev` / `-t test`.
+2. `databricks bundle run ingestion_backfill_job -t dev` once — backfills
+   `daily_bars` and loads it into Bronze.
+3. Nothing else needs manual backfilling — `ingestion_daily_job`/
+   `ingestion_reference_job` running on their restored schedule (or
+   triggered once manually to not wait for the next cron tick) is already
+   correct for `news`/`ticker_overview`/`splits`/`dividends`.
+4. `databricks bundle run dbt_job -t dev` once the Bronze backfill has
+   landed, so `fct_moving_averages`/`fct_volume_anomalies` (window functions
+   over consecutive trade dates) recompute across the now-complete history
+   instead of treating the gap month as missing data.
+5. `databricks bundle run promote_from_dev_job -t test` (and the prod
+   equivalent, manually, as always) if test/prod need the refreshed data
+   before their own schedule picks it up.
+
+For the current state of all 8 jobs across all three environments (which are
+paused-but-scheduled vs. structurally manual-only), see
+[`architecture.md#jobs`](./architecture.md#jobs).

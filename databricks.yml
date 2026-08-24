@@ -92,7 +92,49 @@ targets:
           schedule:
             quartz_cron_expression: "0 0 6 * * ?"
             timezone_id: "UTC"
-            pause_status: UNPAUSED
+            pause_status: PAUSED
+
+        # Manual-trigger-only catch-up for daily_bars after a pause -
+        # ingestion_daily_job's land_daily_data() only ever looks at a
+        # 5-day window, so a paused schedule leaves a permanent gap unless
+        # this is run once on resume. No `schedule:` block at all (not
+        # just PAUSED) - this was never meant to run on a timer, same
+        # reasoning as promote_from_dev_job below. See
+        # docs/engineering-log.md#pausing-and-resuming.
+        ingestion_backfill_job:
+          name: "[${bundle.target}] stock_ingestion_backfill (manual)"
+          description: >-
+            Re-lands ~365 days of daily_bars for the watchlist, then loads
+            whatever's new into Bronze - for catching up after
+            ingestion_daily_job's schedule has been paused for a while.
+            Manual trigger only. Only defined under dev - see the comment
+            on targets.dev above.
+          tags:
+            project: ygz-massive-stock
+            layer: landing-bronze
+          tasks:
+            - task_key: land_daily_bars_backfill
+              environment_key: ingestion_env
+              python_wheel_task:
+                package_name: ygz_massive_stock_pipeline
+                entry_point: land_daily_bars_backfill
+                parameters:
+                  - "${var.catalog}"
+            - task_key: load_bronze
+              depends_on:
+                - task_key: land_daily_bars_backfill
+              environment_key: ingestion_env
+              python_wheel_task:
+                package_name: ygz_massive_stock_pipeline
+                entry_point: load_bronze
+                parameters:
+                  - "${var.catalog}"
+          environments:
+            - environment_key: ingestion_env
+              spec:
+                environment_version: "2"
+                dependencies:
+                  - dist/*.whl
 
         ingestion_reference_job:
           name: "[${bundle.target}] stock_ingestion_reference"
@@ -132,17 +174,19 @@ targets:
           schedule:
             quartz_cron_expression: "0 0 18 ? * SUN"  # offset from ingestion_daily_job's 06:00 daily
             timezone_id: "UTC"                        # run - same API key, same rate limit
-            pause_status: UNPAUSED
+            pause_status: PAUSED
 
         # dbt_job's shared definition lives in resources/jobs.yml with
         # pause_status: PAUSED as its default (matches prod, which doesn't
-        # override it). dev overrides just the schedule here so it runs
-        # daily, 30 min after ingestion_daily_job.
+        # override it - see docs/engineering-log.md#three-environment-isolation-is-structural-not-a-convention
+        # for why that's a known, accepted gap rather than an oversight).
+        # dev overrides just the schedule here so it runs daily, 30 min
+        # after ingestion_daily_job.
         dbt_job:
           schedule:
             quartz_cron_expression: "0 30 6 * * ?"
             timezone_id: "UTC"
-            pause_status: UNPAUSED
+            pause_status: PAUSED
 
   # test and prod are the same workspace as dev, just different UC catalogs
   # (no separate workspace, no service principal - see
@@ -205,7 +249,7 @@ targets:
           schedule:
             quartz_cron_expression: "0 0 8 ? * MON"
             timezone_id: "UTC"
-            pause_status: UNPAUSED
+            pause_status: PAUSED
 
         # dbt_job's shared definition lives in resources/jobs.yml with
         # pause_status: PAUSED as its default. test overrides the schedule
@@ -214,7 +258,7 @@ targets:
           schedule:
             quartz_cron_expression: "0 30 8 ? * MON"
             timezone_id: "UTC"
-            pause_status: UNPAUSED
+            pause_status: PAUSED
 
   prod:
     mode: production
@@ -227,7 +271,7 @@ targets:
     resources:
       jobs:
         promote_from_dev_job:
-          name: "[${bundle.target}] stock_promote_from_dev"
+          name: "[${bundle.target}] stock_promote_from_dev (manual)"
           description: >-
             Copies dev's Landing Volume into this target's, then runs
             load_bronze against this target's catalog - only defined under
