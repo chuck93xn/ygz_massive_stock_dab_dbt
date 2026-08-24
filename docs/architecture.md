@@ -163,3 +163,27 @@ workspaces, no service principal. That tradeoff (and the ones behind it) is
 covered in [`engineering-log.md`](./engineering-log.md#three-environment-isolation-is-structural-not-a-convention),
 along with why `test`/`prod` get their data by copying `dev`'s Landing
 Volume rather than calling massive.com independently.
+
+### Jobs
+
+8 jobs total. Three different states, not just "paused" vs. "not paused" —
+whether a job can *only ever* be triggered manually is a structural property
+of its definition (no `schedule:` block at all), not the same thing as a
+schedule that currently happens to be paused:
+
+| Job | Environment | Trigger |
+| --- | --- | --- |
+| `ingestion_daily_job` | dev | daily 06:00 UTC — has a schedule, currently `PAUSED` |
+| `ingestion_reference_job` | dev | weekly Sun 18:00 UTC — has a schedule, currently `PAUSED` |
+| `ingestion_backfill_job` (manual) | dev | **structurally manual** — no `schedule:` block |
+| `dbt_job` | dev | daily 06:30 UTC — has a schedule, currently `PAUSED` |
+| `promote_from_dev_job` | test | weekly Mon 08:00 UTC — has a schedule, currently `PAUSED` |
+| `dbt_job` | test | weekly Mon 08:30 UTC — has a schedule, currently `PAUSED` |
+| `promote_from_dev_job` (manual) | prod | **structurally manual** — no `schedule:` block |
+| `dbt_job` | prod | daily 06:30 UTC — has a schedule, currently `PAUSED`, **not** structurally manual (inherits the shared `resources/jobs.yml` default rather than a prod-specific override — a known, deliberately accepted gap, not an oversight) |
+
+Why everything is currently paused and how to resume without losing history:
+[`engineering-log.md#pausing-and-resuming`](./engineering-log.md#pausing-and-resuming).
+Why prod's `dbt_job` couldn't be made structurally manual like the other two
+(and why that was left as-is rather than fixed):
+[`engineering-log.md#dbt_job-is-the-one-deliberate-exception-and-it-cant-be-fully-closed`](./engineering-log.md#dbt_job-is-the-one-deliberate-exception-and-it-cant-be-fully-closed).

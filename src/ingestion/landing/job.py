@@ -16,6 +16,12 @@ back-to-back, which is what triggered real 429s in testing (see
 plan/records/05_job_serverless_process.md). Splitting cuts the job that
 actually needs to run daily down to 20 calls, and moves the other 30 to a
 job that only needs to run once a week.
+
+A third entry point, land_daily_bars_backfill(), exists for the
+ingestion_backfill_job - a manual-trigger-only DAB job (no schedule) for
+catching daily_bars back up after the ingestion schedules have been
+paused for a while, since land_daily_data() only ever looks at a 5-day
+window. See docs/engineering-log.md#pausing-and-resuming.
 """
 
 from __future__ import annotations
@@ -75,6 +81,27 @@ def land_reference_data() -> None:
         land_ticker_overview(client, settings, ticker=ticker)
         land_splits(client, settings, ticker=ticker)
         land_dividends(client, settings, ticker=ticker)
+
+
+def land_daily_bars_backfill(days_back: int = 365) -> None:
+    """Entry point for the `ingestion_backfill_job` DAB job - manual
+    trigger only, no schedule. Re-lands a wide daily_bars window (default
+    365 days, well past any reasonable pause) so a paused
+    ingestion_daily_job can catch back up without losing history once its
+    schedule is unpaused again. Only daily_bars needs this: news is a
+    rolling recent-headlines snapshot by design (backfilling it further
+    back doesn't recover anything - see docs/engineering-log.md), and
+    ticker_overview/splits/dividends always return full current state
+    regardless of gap length.
+    """
+    settings = Settings.from_job_argv()
+    client = MassiveClient(api_key=settings.massive_api_key, base_url=settings.massive_base_url)
+
+    end = datetime.now(UTC).date()
+    start = end - timedelta(days=days_back)
+
+    for ticker in WATCHLIST_TICKERS:
+        land_daily_bars(client, settings, ticker=ticker, start_date=start.isoformat(), end_date=end.isoformat())
 
 
 if __name__ == "__main__":

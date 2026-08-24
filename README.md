@@ -95,6 +95,7 @@ databricks bundle validate -t dev
 databricks bundle deploy -t dev
 databricks bundle run ingestion_daily_job -t dev
 databricks bundle run ingestion_reference_job -t dev
+databricks bundle run ingestion_backfill_job -t dev   # manual only, see Jobs below
 databricks bundle run dbt_job -t dev
 ```
 
@@ -149,6 +150,26 @@ passing tests:
 - Silver/Gold dbt models finished, including `dim_ticker` as SCD2 and all three Gold business rules - significant moves, trend, volume spikes (see [`docs/architecture.md`](docs/architecture.md#gold-business-rules)).
 - 3 isolated environments (dev/test/prod) on one workspace: `dev`-only real API calls, `promote_from_dev_job` for test/prod (see [`docs/engineering-log.md`](docs/engineering-log.md#three-environment-isolation-is-structural-not-a-convention)).
 - CI/CD live: push validates dev, PR deploys dev, merge to main deploys test, manual dispatch deploys prod.
-- Schedules unpaused and cost-tiered by environment - dev daily, test weekly, prod fully manual (see [`docs/engineering-log.md`](docs/engineering-log.md#cost-aware-scheduling)).
 
 **Scope note:** no real-time/Structured Streaming phase - dropped, not needed for this project.
+
+### Jobs
+
+All 8 jobs across the three environments, current as of the last deploy:
+
+| Job | Environment | Trigger |
+| --- | --- | --- |
+| `ingestion_daily_job` | dev | daily 06:00 UTC — **paused** |
+| `ingestion_reference_job` | dev | weekly Sun 18:00 UTC — **paused** |
+| `ingestion_backfill_job` (manual) | dev | manual only, no schedule |
+| `dbt_job` | dev | daily 06:30 UTC — **paused** |
+| `promote_from_dev_job` | test | weekly Mon 08:00 UTC — **paused** |
+| `dbt_job` | test | weekly Mon 08:30 UTC — **paused** |
+| `promote_from_dev_job` (manual) | prod | manual only, no schedule |
+| `dbt_job` | prod | daily 06:30 UTC — **paused** (inherited default, not structurally manual — see engineering-log) |
+
+Every schedule is currently paused for cost reasons; see
+[`docs/engineering-log.md#pausing-and-resuming`](docs/engineering-log.md#pausing-and-resuming)
+for the resume runbook and
+[`docs/architecture.md#jobs`](docs/architecture.md#jobs) for the full breakdown of which jobs
+are structurally manual-only vs. currently-paused-but-scheduled.
